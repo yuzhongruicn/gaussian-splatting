@@ -31,6 +31,7 @@ if __name__ == "__main__":
 
     data = pykitti.raw(basedir, date, drive)
     # print(data.calib)
+    # exit()
 
     # load intrinsics
     P_rect_20 = data.calib.P_rect_20
@@ -51,9 +52,10 @@ if __name__ == "__main__":
     cam_to_world = {}
     image_names = []
 
-    for idx, oxt in enumerate(data.oxts):
+    for idx, _ in enumerate(data.oxts):
         # continue
-        imu_to_world = oxt.T_w_imu
+        imu_to_world = data.oxts[idx].T_w_imu
+        # print(imu_to_world)
 
         cam2_to_imu = np.linalg.inv(imu_to_cam2)
         cam2_to_world = np.matmul(np.matmul(imu_to_world, cam2_to_imu), np.linalg.inv(R_rect_20))
@@ -72,20 +74,23 @@ if __name__ == "__main__":
             # cam3_img.save(os.path.join(output_dir, f'images/03_{idx:010d}.png'))
 
         if args.pcd:
-
             points_velo = data.get_velo(idx)
-            vel_to_imu = np.linalg.inv(imu_to_vel)
-            vel_to_world = np.matmul(imu_to_vel,vel_to_imu)
-            points_world = vel_to_world.dot(points_velo.T)
+            points_velo[:,-1] = points_velo[:,-1] * 0 + 1
 
+            vel_to_imu = np.linalg.inv(imu_to_vel)
+            vel_to_world = np.matmul(imu_to_world, vel_to_imu)
+            points_world = np.matmul(vel_to_world, points_velo.T)
+
+            pcd = o3d.geometry.PointCloud()
+            pcd.points= o3d.utility.Vector3dVector(points_world.T[:,:3])
+            # o3d.io.write_point_cloud(os.path.join(output_dir, f'pcd_{idx}.ply'), pcd)
             if idx == 0:
                 points_all = points_world.T[:,:3]
+                pcd_all = pcd
             else:
                 points_all = np.vstack((points_all, points_world.T[:,:3]))
+                pcd_all += pcd
 
-
-
-        # TODO point cloud
 
     # db_fn = os.path.join(output_dir, 'database.db') 
     # with sqlite3.connect(db_fn) as db:
@@ -130,6 +135,7 @@ if __name__ == "__main__":
 
     if args.pcd:
         print('# points: ', points_all.shape)
+        o3d.io.write_point_cloud(os.path.join(output_dir, 'all.ply'), pcd_all)
         pcd_f_w = open(os.path.join(output_dir,'sparse/0/points3D.txt'), 'w')
         for i, point in enumerate(points_all):
             pcd_f_w.write(f'{i} ')
