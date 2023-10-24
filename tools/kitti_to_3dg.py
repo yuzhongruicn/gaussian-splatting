@@ -1,4 +1,7 @@
-# transfer kitti dataset to COLMAP format
+'''
+transfer kitti dataset to COLMAP format
+input: Kitti raw data
+'''
 
 import os
 import numpy as np 
@@ -8,17 +11,23 @@ import sqlite3
 from scipy.spatial.transform import Rotation as R
 import open3d as o3d
 
-if __name__ == "__main__":
+def read_args():
     parser = argparse.ArgumentParser(description='transfer kitti dataset to COLMAP format')
-    parser.add_argument('-s', '--data_path', default='/root/paddlejob/workspace/yuzhongrui/datasets')
-    parser.add_argument('-o', '--output_path', default='/root/paddlejob/workspace/yuzhongrui/datasets/2011_09_26_kitti')
+    parser.add_argument('-s', '--data_path', type=str, default='/root/paddlejob/workspace/yuzhongrui/datasets')
+    parser.add_argument('-o', '--output_path', type=str, default='/root/paddlejob/workspace/yuzhongrui/datasets/2011_09_26_kitti')
     parser.add_argument('--pcd', action='store_true', default=False)
+    parser.add_argument('--date', type=str, default='2011_09_26')
+    parser.add_argument('--drive', type=str, default='0002')
 
-    args =  parser.parse_args()
+    return parser.parse_args()
+
+if __name__ == "__main__":
+
+    args = read_args()
 
     basedir =  args.data_path
-    date = '2011_09_26'
-    drive = '0002'
+    date = args.date
+    drive = args.drive
 
     output_dir = args.output_path
     move_img = False
