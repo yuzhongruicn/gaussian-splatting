@@ -168,10 +168,13 @@ def read_intrinsics_text(path):
                 elems = line.split()
                 camera_id = int(elems[0])
                 model = elems[1]
-                assert model == "PINHOLE", "While the loader support other types, the rest of the code assumes PINHOLE"
+                assert model in ["PINHOLE", "SIMPLE_PINHOLE"], \
+                    "While the loader support other types, the rest of the code assumes PINHOLE"
                 width = int(elems[2])
                 height = int(elems[3])
                 params = np.array(tuple(map(float, elems[4:])))
+                if model == "SIMPLE_PINHOLE":
+                    params = np.array([params[0], params[0], params[1], params[2]])
                 cameras[camera_id] = Camera(id=camera_id, model=model,
                                             width=width, height=height,
                                             params=params)

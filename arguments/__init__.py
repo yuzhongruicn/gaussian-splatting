@@ -34,6 +34,11 @@ class ParamGroup:
             else:
                 if t == bool:
                     group.add_argument("--" + key, default=value, action="store_true")
+                elif t == list:
+                    if value is None:
+                        group.add_argument("--" + key, default=None)
+                    else:
+                        group.add_argument("--" + key, default=value[0], choices=value, type=type(value[0]))
                 else:
                     group.add_argument("--" + key, default=value, type=t)
 
@@ -54,6 +59,8 @@ class ModelParams(ParamGroup):
         self._white_background = False
         self.data_device = "cuda"
         self.eval = False
+        self.data_format = ['colmap', 'idg', None]     #['colmap', 'idg']
+        self.block = "block_0"
         super().__init__(parser, "Loading Parameters", sentinel)
 
     def extract(self, args):
