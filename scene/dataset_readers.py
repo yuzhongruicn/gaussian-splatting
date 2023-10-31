@@ -34,6 +34,8 @@ class CameraInfo(NamedTuple):
     image_name: str
     width: int
     height: int
+    mask: np.array
+    mask_path: str
 
 class SceneInfo(NamedTuple):
     point_cloud: BasicPointCloud
@@ -65,7 +67,7 @@ def getNerfppNorm(cam_info):
 
     return {"translate": translate, "radius": radius}
 
-def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder):
+def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder, load_mask=False):
     cam_infos = []
     for idx, key in enumerate(cam_extrinsics):
         sys.stdout.write('\r')
@@ -97,9 +99,16 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder):
         image_path = os.path.join(images_folder, os.path.basename(extr.name))
         image_name = os.path.basename(image_path).split(".")[0]
         image = Image.open(image_path)
+        
+        mask = None
+        mask_path = None
+        if load_mask:
+            mask_path = os.path.join(os.path.split(images_folder)[0], "mask", os.path.basename(extr.name))
+            mask = Image.open(mask_path)
+            assert(mask.size == image.size, f'mask size {mask.size} does not match image size {image.size}')
 
         cam_info = CameraInfo(uid=uid, R=R, T=T, FovY=FovY, FovX=FovX, image=image,
-                              image_path=image_path, image_name=image_name, width=width, height=height)
+                              image_path=image_path, image_name=image_name, width=width, height=height, mask=mask, mask_path=mask_path)
         cam_infos.append(cam_info)
     sys.stdout.write('\n')
     return cam_infos
@@ -176,7 +185,7 @@ def readColmapSceneInfo(path, images, eval, llffhold=8):
                            ply_path=ply_path)
     return scene_info
 
-def readIDGSceneInfo(path, images, eval, block="block_0"):
+def readIDGSceneInfo(path, images, eval, block="block_0", load_mask=False):
     try:
         cameras_extrinsic_file = os.path.join(path, "sparse/0", "images.bin")
         cameras_intrinsic_file = os.path.join(path, "sparse/0", "cameras.bin")
@@ -190,7 +199,9 @@ def readIDGSceneInfo(path, images, eval, block="block_0"):
 
     # TODO: 增加文件格式的扩展性， 加入block选择等
     reading_dir = "images" if images == None else images
-    cam_infos_unsorted = readColmapCameras(cam_extrinsics=cam_extrinsics, cam_intrinsics=cam_intrinsics, images_folder=os.path.join(path, reading_dir))
+    cam_infos_unsorted = readColmapCameras(cam_extrinsics=cam_extrinsics, cam_intrinsics=cam_intrinsics, 
+                                           images_folder=os.path.join(path, reading_dir),
+                                           load_mask=load_mask)
     cam_infos = sorted(cam_infos_unsorted.copy(), key = lambda x : x.image_name)
 
     split_path = os.path.join(path, "json", "idg_split.json")
@@ -206,8 +217,9 @@ def readIDGSceneInfo(path, images, eval, block="block_0"):
         train_cam_infos = cam_infos
         test_cam_infos = []
 
-    print("#Training poses: ", len(train_list))
-    print("#Test poses: ", len(test_list))
+    print("#Training poses: ", len(train_cam_infos))
+    print("#Test poses: ", len(test_cam_infos))
+    # exit()
 
     nerf_normalization = getNerfppNorm(train_cam_infos)
 

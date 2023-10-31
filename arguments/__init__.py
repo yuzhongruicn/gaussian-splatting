@@ -61,6 +61,7 @@ class ModelParams(ParamGroup):
         self.eval = False
         self.data_format = ['colmap', 'idg', None]     #['colmap', 'idg']
         self.block = "block_0"
+        self.mask = False
         super().__init__(parser, "Loading Parameters", sentinel)
 
     def extract(self, args):

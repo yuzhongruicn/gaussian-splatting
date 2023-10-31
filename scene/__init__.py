@@ -12,6 +12,7 @@
 import os
 import random
 import json
+import numpy as np
 from utils.system_utils import searchForMaxIteration
 from scene.dataset_readers import sceneLoadTypeCallbacks
 from scene.gaussian_model import GaussianModel
@@ -41,7 +42,7 @@ class Scene:
         self.test_cameras = {}
         
         if args.data_format == "idg":
-            scene_info = sceneLoadTypeCallbacks["IDG"](args.source_path, args.images, args.eval, args.block)
+            scene_info = sceneLoadTypeCallbacks["IDG"](args.source_path, args.images, args.eval, args.block, args.mask)
         elif args.data_format == "colmap" and os.path.exists(os.path.join(args.source_path, "sparse")):
             scene_info = sceneLoadTypeCallbacks["Colmap"](args.source_path, args.images, args.eval)
         elif os.path.exists(os.path.join(args.source_path, "transforms_train.json")):
@@ -93,3 +94,35 @@ class Scene:
 
     def getTestCameras(self, scale=1.0):
         return self.test_cameras[scale]
+    
+    def getRenderCameras(self, scale=1.0, render_path=None):
+        train_camera = self.train_cameras[scale][0]
+        width = train_camera['width']
+        height = train_camera['height']
+        fy = train_camera['fy']
+        fx = train_camera['fx']
+
+        render_file = render_path if render_path else "render_path.json"
+        with open(os.path.join(self.model_path, render_file), 'w') as file:
+            render_pose = json.load(file)
+        camera_poses = []
+        for id, camera_pose in render_pose["camera_path"]:
+            c2w = camera_pose["camera_to_world"]
+            w2c = np.linalg.inv(c2w)
+            pos = w2c[:3, 3]
+            rot = w2c[:3, :3]
+            serializable_array_2d = [x.tolist() for x in rot]
+            camera_entry = {
+                'id' : id,
+                'img_name' : '{0:05d}'.format(id),
+                'width' : width,
+                'height' : height,
+                'position': pos.tolist(),
+                'rotation': serializable_array_2d,
+                'fy' : fy,
+                'fx' : fx
+            }
+            camera_poses.append(camera_entry)
+        return camera_poses
+
+        
