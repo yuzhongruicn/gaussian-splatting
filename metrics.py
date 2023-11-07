@@ -46,7 +46,9 @@ def readMasks(mask_path, image_names):
     return masks
 
 
-def evaluate(model_paths, load_mask=False, mask_path=None):
+def evaluate(model_paths, mask_path=None):
+
+    load_mask = mask_path is not None
 
     full_dict = {}
     per_view_dict = {}
@@ -126,6 +128,10 @@ if __name__ == "__main__":
     parser = ArgumentParser(description="Training script parameters")
     parser.add_argument('--model_paths', '-m', required=True, nargs="+", type=str, default=[])
     parser.add_argument('--mask', action="store_true")
-    parser.add_argument('--mask_path', type=str, default='/root/paddlejob/workspace/yuzhongrui/datasets/IDG_Wuhan_0907_block0/mask')
+    parser.add_argument('--mask_path', type=str, default=None)
     args = parser.parse_args()
-    evaluate(args.model_paths, args.mask, args.mask_path)
+
+    if args.mask:
+        assert args.mask_path is not None, "please add path for the mask"
+
+    evaluate(args.model_paths, args.mask_path)
