@@ -81,6 +81,7 @@ if __name__ == "__main__":
             
             image_id, image_name, camera_id = line.strip().split()
             transform = cam_to_world[image_name]
+            transform[:3, 3] *= 100
             transform = np.linalg.inv(transform)
             r = R.from_matrix(transform[:3,:3])
             rquat= r.as_quat()  # The returned value is in scalar-last (x, y, z, w) format.
