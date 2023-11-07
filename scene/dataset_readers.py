@@ -105,7 +105,7 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder, load_mask=F
         if load_mask:
             mask_path = os.path.join(os.path.split(images_folder)[0], "mask", os.path.basename(extr.name))
             mask = Image.open(mask_path)
-            assert(mask.size == image.size, f'mask size {mask.size} does not match image size {image.size}')
+            assert mask.size == image.size, f'mask size {mask.size} does not match image size {image.size}'
 
         cam_info = CameraInfo(uid=uid, R=R, T=T, FovY=FovY, FovX=FovX, image=image,
                               image_path=image_path, image_name=image_name, width=width, height=height, mask=mask, mask_path=mask_path)
