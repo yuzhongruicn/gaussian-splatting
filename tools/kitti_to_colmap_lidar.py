@@ -14,7 +14,7 @@ import open3d as o3d
 def read_args():
     parser = argparse.ArgumentParser(description='transfer kitti dataset to COLMAP format')
     parser.add_argument('-s', '--data_path', type=str, default='/root/paddlejob/workspace/yuzhongrui/datasets')
-    parser.add_argument('-o', '--output_path', type=str, default='/root/paddlejob/workspace/yuzhongrui/datasets/2011_09_26_kitti')
+    parser.add_argument('-o', '--output_path', type=str, default='/root/paddlejob/workspace/yuzhongrui/datasets/2011_09_26_kitti_original')
     parser.add_argument('--pcd', action='store_true', default=False)
     parser.add_argument('--date', type=str, default='2011_09_26')
     parser.add_argument('--drive', type=str, default='0002')
@@ -101,19 +101,12 @@ if __name__ == "__main__":
                 pcd_all += pcd
 
 
-    # db_fn = os.path.join(output_dir, 'database.db') 
-    # with sqlite3.connect(db_fn) as db:
-    #     c = db.cursor()
-    #     c.execute("SELECT * FROM 'images'")
-    #     result = c.fetchall()
-
-    # out_fn = os.path.join(output_dir, 'id_names.txt')
-    # with open(out_fn, 'w') as f:
-    #     for i in result:
-    #         f.write(str(i[0]) + ' ' + i[1] + '\n')
-    # f.close()
-
-    f_w = open(os.path.join(output_dir, 'sparse/0/images.txt'), 'w')
+    # f_w = open(os.path.join(output_dir, 'sparse/0/images.txt'), 'w')
+    c_w = open(os.path.join(output_dir, 'sparse/0/cameras.txt'), 'w')
+    fx = P_rect_20[0, 0]
+    fy = P_rect_20[1, 1]
+    cx = P_rect_20[0, 2]
+    cy = P_rect_20[1, 2]
 
     for i in range(len(image_names)):
         idx = image_names[i][0]
@@ -126,19 +119,16 @@ if __name__ == "__main__":
         rquat= r.as_quat()  # The returned value is in scalar-last (x, y, z, w) format.
         rquat[0], rquat[1], rquat[2], rquat[3] = rquat[3], rquat[0], rquat[1], rquat[2]
         out = np.concatenate((rquat, transform[:3, 3]), axis=0)
-        f_w.write(f'{idx} ')
-        f_w.write(' '.join([str(a) for a in out.tolist()] ) )
-        f_w.write(f' 1 {name}')
-        f_w.write('\n\n')
-    f_w.close()
+        # f_w.write(f'{idx + 1} ')
+        # f_w.write(' '.join([str(a) for a in out.tolist()] ) )
+        # f_w.write(f' {idx + 1} {name}')
+        # f_w.write('\n\n')
 
-    cameras_fn = os.path.join(output_dir, 'sparse/0/cameras.txt')
-    fx = P_rect_20[0, 0]
-    fy = P_rect_20[1, 1]
-    cx = P_rect_20[0, 2]
-    cy = P_rect_20[1, 2]
-    with open(cameras_fn, 'w') as f:
-        f.write(f'1 PINHOLE 1242 375 {fx} {fy} {cx} {cy}')
+        c_w.write(f'{idx + 1} PINHOLE 1242 375 {fx} {fy} {cx} {cy}')
+        c_w.write('\n')
+
+    # f_w.close()
+    c_w.close()
 
     # o3d.io.write_point_cloud(os.path.join(output_dir,'sparse/0/points3D.ply'), points_all)
 
