@@ -41,7 +41,7 @@ class SceneInfo(NamedTuple):
     point_cloud: BasicPointCloud
     train_cameras: list
     test_cameras: list
-    nerf_normalization: dict
+    nerf_normalization: dict     # {"translate": translate (center), "radius": radius} training pose的中心，半径
     ply_path: str
 
 def getNerfppNorm(cam_info):
