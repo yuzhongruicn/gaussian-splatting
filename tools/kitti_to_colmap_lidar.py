@@ -125,6 +125,7 @@ if __name__ == "__main__":
         # f_w.write('\n\n')
 
         c_w.write(f'{idx + 1} PINHOLE 1242 375 {fx} {fy} {cx} {cy}')
+        # c_w.write(f'{idx + 1} SIMPLE_PINHOLE 1242 375 712.02303419556176 621 187.5')
         c_w.write('\n')
 
     # f_w.close()
