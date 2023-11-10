@@ -13,8 +13,8 @@ import torch
 from torch import nn
 import numpy as np
 from utils.graphics_utils import getWorld2View2, getProjectionMatrix
-# import os
-# import torchvision.utils
+import os
+import torchvision.utils
 
 class Camera(nn.Module):
     def __init__(self, colmap_id, R, T, FoVx, FoVy, image, gt_alpha_mask,
@@ -46,7 +46,7 @@ class Camera(nn.Module):
         if mask is not None:
             self.mask = (mask == 1).expand(*image.shape)        #[1, H, W]
             # masked_image = torch.where(mask!=True, image, 0)
-            # save_path = os.path.join("/root/paddlejob/workspace/yuzhongrui/outputs/IDG_Wuhan_block_0/init_mask", "mask")
+            # save_path = os.path.join("/root/paddlejob/workspace/yuzhongrui/outputs/3dg/IDG_Wuhan_1101_block_4", "mask")
             # os.makedirs(save_path, exist_ok=True)
             # torchvision.utils.save_image(masked_image, os.path.join(save_path, f"{image_name}_masked.png"))
    
@@ -56,6 +56,7 @@ class Camera(nn.Module):
             self.original_image *= torch.ones((1, self.image_height, self.image_width), device=self.data_device)        # [3, H, W]
 
         self.zfar = 100.0
+        # self.zfar = 1000.0
         self.znear = 0.01
 
         self.trans = trans
