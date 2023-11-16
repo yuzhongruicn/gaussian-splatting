@@ -49,7 +49,7 @@ def loadCam(args, id, cam_info, resolution_scale):
 
     mask = None
     if args.mask:
-        assert(cam_info.mask is not None, f"No mask for camera {cam_info.image_name}")
+        assert cam_info.mask is not None, f"No mask for camera {cam_info.image_name}"
         mask = PILtoTorch(cam_info.mask, resolution)
 
     return Camera(colmap_id=cam_info.uid, R=cam_info.R, T=cam_info.T, 
