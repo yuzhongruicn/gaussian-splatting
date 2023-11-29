@@ -42,7 +42,7 @@ class Scene:
         self.test_cameras = {}
         
         if args.data_format == "idg":
-            scene_info = sceneLoadTypeCallbacks["IDG"](args.source_path, args.images, args.eval, args.block, args.mask)
+            scene_info = sceneLoadTypeCallbacks["IDG"](args.source_path, args.images, args.eval, args.block, args.mask, args.spherical_bg, args.num_bg_points, args.bg_dist)
         elif args.data_format == "colmap" and os.path.exists(os.path.join(args.source_path, "sparse")):
             scene_info = sceneLoadTypeCallbacks["Colmap"](args.source_path, args.images, args.eval)
         elif os.path.exists(os.path.join(args.source_path, "transforms_train.json")):
@@ -54,6 +54,9 @@ class Scene:
         if not self.loaded_iter:
             with open(scene_info.ply_path, 'rb') as src_file, open(os.path.join(self.model_path, "input.ply") , 'wb') as dest_file:
                 dest_file.write(src_file.read())
+            # if scene_info.bg_path:
+            #     with open(scene_info.bg_path, 'rb') as src_file, open(os.path.join(self.model_path, "bg.ply") , 'wb') as dest_file:
+            #         dest_file.write(src_file.read())
             json_cams = []
             camlist = []
             if scene_info.test_cameras:
@@ -70,6 +73,7 @@ class Scene:
             random.shuffle(scene_info.test_cameras)  # Multi-res consistent random shuffling
 
         self.cameras_extent = scene_info.nerf_normalization["radius"]
+        print('camera_extent: ', self.cameras_extent)
 
         for resolution_scale in resolution_scales:
             print("Loading Training Cameras")

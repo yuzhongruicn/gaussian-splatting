@@ -22,6 +22,7 @@ from pathlib import Path
 from plyfile import PlyData, PlyElement
 from utils.sh_utils import SH2RGB
 from scene.gaussian_model import BasicPointCloud
+import math
 
 class CameraInfo(NamedTuple):
     uid: int
@@ -113,12 +114,23 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder, load_mask=F
     sys.stdout.write('\n')
     return cam_infos
 
-def fetchPly(path):
+def fetchPly(path, bg_path=None):
     plydata = PlyData.read(path)
     vertices = plydata['vertex']
     positions = np.vstack([vertices['x'], vertices['y'], vertices['z']]).T
     colors = np.vstack([vertices['red'], vertices['green'], vertices['blue']]).T / 255.0
     normals = np.vstack([vertices['nx'], vertices['ny'], vertices['nz']]).T
+
+    if bg_path is not None:
+        bg_plydata = PlyData.read(bg_path)
+        bg_vertices = bg_plydata['vertex']
+        bg_positions = np.vstack([bg_vertices['x'], bg_vertices['y'], bg_vertices['z']]).T
+        bg_colors = np.vstack([bg_vertices['red'], bg_vertices['green'], bg_vertices['blue']]).T / 255.0
+        bg_normals = np.vstack([bg_vertices['nx'], bg_vertices['ny'], bg_vertices['nz']]).T
+
+        positions = np.concatenate([positions, bg_positions], axis=0)
+        colors = np.concatenate([colors, bg_colors], axis=0)
+        normals = np.concatenate([normals, bg_normals], axis=0)
     return BasicPointCloud(points=positions, colors=colors, normals=normals)
 
 def storePly(path, xyz, rgb):
@@ -137,6 +149,36 @@ def storePly(path, xyz, rgb):
     vertex_element = PlyElement.describe(elements, 'vertex')
     ply_data = PlyData([vertex_element])
     ply_data.write(path)
+
+def make_spherical_bg(xyz, rgb, num_points, dist):
+    '''
+    Add virtual spherical background points
+    modeified from 
+    https://github.com/yzslab/gaussian-splatting-lightning/blob/e258e08dbd058c538ffb751cb296499940456ed2/internal/dataset.py#L232
+
+    '''
+    point_max_coordinate = np.max(xyz, axis=0)
+    point_min_coordinate = np.min(xyz, axis=0)
+    scene_center = (point_max_coordinate + point_min_coordinate) / 2
+    scene_size = np.max(point_max_coordinate - point_min_coordinate)
+    print(f'PCD: center {scene_center}, size {scene_size}')
+    # build unit sphere points
+    samples = np.arange(num_points)
+    y = 1 - (samples / float(num_points - 1)) * 2  # y goes from 1 to -1
+    radius = np.sqrt(1 - y * y)  # radius at y
+    phi = math.pi * (math.sqrt(5.) - 1.)  # golden angle in radians
+    theta = phi * samples  # golden angle increment
+    x = np.cos(theta) * radius
+    z = np.sin(theta) * radius
+    unit_sphere_points = np.concatenate([x[:, None], y[:, None], z[:, None]], axis=1)
+    # build background sphere
+    background_sphere_point_xyz = (unit_sphere_points * scene_size * dist) + scene_center
+    background_sphere_point_rgb = np.asarray(np.random.random(background_sphere_point_xyz.shape) * 255, dtype=np.uint8)
+    # add background sphere to scene
+    # xyz = np.concatenate([xyz, background_sphere_point_xyz], axis=0)
+    # rgb = np.concatenate([rgb, background_sphere_point_rgb], axis=0)
+
+    return background_sphere_point_xyz, background_sphere_point_rgb
 
 def readColmapSceneInfo(path, images, eval, llffhold=8):
     try:
@@ -185,7 +227,7 @@ def readColmapSceneInfo(path, images, eval, llffhold=8):
                            ply_path=ply_path)
     return scene_info
 
-def readIDGSceneInfo(path, images, eval, block="block_0", load_mask=False):
+def readIDGSceneInfo(path, images, eval, block="block_0", load_mask=False, spherical_bg=False, num_bg_points=10000, bg_dist=1.0):
     try:
         cameras_extrinsic_file = os.path.join(path, "sparse/0", "images.bin")
         cameras_intrinsic_file = os.path.join(path, "sparse/0", "cameras.bin")
@@ -226,6 +268,23 @@ def readIDGSceneInfo(path, images, eval, block="block_0", load_mask=False):
     ply_path = os.path.join(path, "sparse/0/points3D.ply")
     bin_path = os.path.join(path, "sparse/0/points3D.bin")
     txt_path = os.path.join(path, "sparse/0/points3D.txt")
+
+    if spherical_bg:
+        bg_path = os.path.join(path, f"sparse/0/bg_{num_bg_points}_{bg_dist}.ply")
+        if not os.path.exists(bg_path):
+            print(f"Making spherical background with {num_bg_points} points.")
+            try:
+                xyz, rgb, _ = read_points3D_binary(bin_path)
+            except:
+                xyz, rgb, _ = read_points3D_text(txt_path)
+            bg_xyz, bg_rgb = make_spherical_bg(xyz, rgb, num_points=num_bg_points, dist=bg_dist)
+            storePly(bg_path, bg_xyz, bg_rgb)
+            if not os.path.exists(ply_path):
+                print("Converting point3d.bin to .ply, will happen only the first time you open the scene.")
+                storePly(ply_path, xyz, rgb)
+    else:
+        bg_path = None
+
     if not os.path.exists(ply_path):
         print("Converting point3d.bin to .ply, will happen only the first time you open the scene.")
         try:
@@ -233,8 +292,9 @@ def readIDGSceneInfo(path, images, eval, block="block_0", load_mask=False):
         except:
             xyz, rgb, _ = read_points3D_text(txt_path)
         storePly(ply_path, xyz, rgb)
+        
     try:
-        pcd = fetchPly(ply_path)
+        pcd = fetchPly(ply_path, bg_path)
     except:
         pcd = None
 
