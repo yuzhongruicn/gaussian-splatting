@@ -62,11 +62,19 @@ class ModelParams(ParamGroup):
         self.data_format = ['colmap', 'idg', None]     #['colmap', 'idg']
         self.block = "block_0"
         self.mask = False
+        self.spherical_bg = False
+        self.num_bg_points = 10_000
+        self.bg_dist = 1.0
         super().__init__(parser, "Loading Parameters", sentinel)
 
     def extract(self, args):
         g = super().extract(args)
         g.source_path = os.path.abspath(g.source_path)
+        
+        for args in vars(self).items():
+            if args[0] not in vars(g) and args[0][1:] not in vars(g):
+                setattr(g, args[0], args[1])
+
         return g
 
 class PipelineParams(ParamGroup):
@@ -96,6 +104,14 @@ class OptimizationParams(ParamGroup):
         self.densify_grad_threshold = 0.0002
         self.random_background = False
         super().__init__(parser, "Optimization Parameters")
+
+class WandbParams(ParamGroup):
+    def __init__(self, parser):
+        self.wandb_disabled = False
+        self.project_name = "3D Gaussian Splatting"
+        self.run_name = ""
+        super().__init__(parser, "Wandb Parameters")
+
 
 def get_combined_args(parser : ArgumentParser):
     cmdlne_string = sys.argv[1:]

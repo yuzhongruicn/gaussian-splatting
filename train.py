@@ -21,12 +21,15 @@ import uuid
 from tqdm import tqdm
 from utils.image_utils import psnr
 from argparse import ArgumentParser, Namespace
-from arguments import ModelParams, PipelineParams, OptimizationParams
-try:
-    from torch.utils.tensorboard import SummaryWriter
-    TENSORBOARD_FOUND = True
-except ImportError:
-    TENSORBOARD_FOUND = False
+from arguments import ModelParams, PipelineParams, OptimizationParams, WandbParams
+from torchvision.utils import make_grid
+import wandb
+# try:
+#     from torch.utils.tensorboard import SummaryWriter
+#     TENSORBOARD_FOUND = True
+# except ImportError:
+#     TENSORBOARD_FOUND = False
+TENSORBOARD_FOUND = False
 
 def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint, debug_from):
     first_iter = 0
@@ -112,7 +115,8 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                 progress_bar.close()
 
             # Log and save
-            training_report(tb_writer, iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end), testing_iterations, scene, render, (pipe, background), dataset.mask)
+            # training_report(tb_writer, iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end), testing_iterations, scene, render, (pipe, background), gaussians, dataset.mask)
+            training_report_wandb(iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end), testing_iterations, scene, render, (pipe, background), gaussians, dataset.mask)
             if (iteration in saving_iterations):
                 print("\n[ITER {}] Saving Gaussians".format(iteration))
                 scene.save(iteration)
@@ -167,11 +171,16 @@ def prepare_output_and_logger(args, opt, pipe):
         print("Tensorboard not available: not logging progress")
     return tb_writer
 
-def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_iterations, scene : Scene, renderFunc, renderArgs, load_mask=False):
+def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_iterations, scene : Scene, renderFunc, renderArgs, gaussians : GaussianModel, load_mask=False):
     if tb_writer:
         tb_writer.add_scalar('train_loss_patches/l1_loss', Ll1.item(), iteration)
         tb_writer.add_scalar('train_loss_patches/total_loss', loss.item(), iteration)
         tb_writer.add_scalar('iter_time', elapsed, iteration)
+
+        for param_group in gaussians.optimizer.param_groups:
+            if param_group["name"] == "xyz":
+                lr = param_group['lr']
+                tb_writer.add_scalar('learning_rates/xyz', lr, iteration)
 
     # Report test and samples of training set
     if iteration in testing_iterations:
@@ -211,12 +220,63 @@ def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_i
             tb_writer.add_scalar('total_points', scene.gaussians.get_xyz.shape[0], iteration)
         torch.cuda.empty_cache()
 
+def training_report_wandb(iteration, Ll1, loss, l1_loss, elapsed, testing_iterations, scene : Scene, renderFunc, renderArgs, gaussians : GaussianModel, load_mask=False):
+    wandb.log({'train_loss/patches_l1_loss': Ll1.item(),
+               'train_loss/patches_total_loss': loss.item(),
+               'iter_time': elapsed},
+               step = iteration)
+    for param_group in gaussians.optimizer.param_groups:
+            if param_group["name"] == "xyz":
+                lr = param_group['lr']
+                wandb.log({'learning_rates/xyz': lr}, step = iteration)
+    # Report test and samples of training set
+    if iteration in testing_iterations:
+        torch.cuda.empty_cache()
+        validation_configs = ({'name': 'test', 'cameras' : scene.getTestCameras()}, 
+                              {'name': 'train', 'cameras' : [scene.getTrainCameras()[idx % len(scene.getTrainCameras())] for idx in range(5, 30, 5)]})
+
+        for config in validation_configs:
+            if config['cameras'] and len(config['cameras']) > 0:
+                l1_test = 0.0
+                psnr_test = 0.0
+                for idx, viewpoint in enumerate(config['cameras']):
+                    image = torch.clamp(renderFunc(viewpoint, scene.gaussians, *renderArgs)["render"], 0.0, 1.0)
+                    gt_image = torch.clamp(viewpoint.original_image.to("cuda"), 0.0, 1.0)
+                    if idx < 5:
+                        wandb.log({config['name'] + "_view/{}/render".format(viewpoint.image_name): wandb.Image(image[None], caption="Render")}, step=iteration)
+                        image_grid = torch.cat((image, gt_image), dim=-1)
+                        wandb.log({config['name'] + "_view/{}/combined".format(viewpoint.image_name): wandb.Image(image_grid[None], caption="Left:Render, Right:GT")}, step=iteration)
+                        if iteration == testing_iterations[0]:
+                            wandb.log({config['name'] + "_view/{}/GT".format(viewpoint.image_name): wandb.Image(gt_image[None], caption="Ground Truth")}, step=iteration)
+                    if load_mask: 
+                        mask = viewpoint.mask.cuda()
+                        masked_gt_image = torch.where(mask!=True, gt_image, 0).cuda()
+                        masked_image = torch.where(mask!=True, image, 0).cuda()
+                        l1_test += l1_loss(masked_image, masked_gt_image).mean().double()
+                        psnr_test += psnr(masked_image, masked_gt_image).mean().double()
+                    else:
+                        l1_test += l1_loss(image, gt_image).mean().double()
+                        psnr_test += psnr(image, gt_image).mean().double()
+                psnr_test /= len(config['cameras'])
+                l1_test /= len(config['cameras'])          
+                print("\n[ITER {}] Evaluating {}: L1 {} PSNR {}".format(iteration, config['name'], l1_test, psnr_test))
+                wandb.log({config['name'] + '_loss/viewpoint_l1_loss': l1_test,
+                           config['name'] + '_loss/viewpoint_psnr': psnr_test}, 
+                           step = iteration)
+
+        wandb.log({"scene/opacity_histogram": wandb.Histogram(scene.gaussians.get_opacity.cpu()),
+                   "scene/total_points": scene.gaussians.get_xyz.shape[0]}, 
+                   step = iteration)
+        torch.cuda.empty_cache()
+
+
 if __name__ == "__main__":
     # Set up command line argument parser
     parser = ArgumentParser(description="Training script parameters")
     lp = ModelParams(parser)
     op = OptimizationParams(parser)
     pp = PipelineParams(parser)
+    wdb = WandbParams(parser)
     parser.add_argument('--ip', type=str, default="127.0.0.1")
     parser.add_argument('--port', type=int, default=6009)
     parser.add_argument('--debug_from', type=int, default=-1)
@@ -233,6 +293,21 @@ if __name__ == "__main__":
 
     # Initialize system state (RNG)
     safe_state(args.quiet)
+
+    # Initialize Wandb
+    wdb = wdb.extract(args)
+    if wdb.wandb_disabled:
+        mode = "disabled"
+    else:
+        mode = "offline"        # set offline on pdc and sync in docker
+    if wdb.run_name == None:
+        wandb.init(project=wdb.project_name,
+                   mode=mode)
+    else:
+        wandb.init(project=wdb.project_name,
+                   name=wdb.run_name,
+                   mode=mode)
+    wandb.config.update(args)
 
     # Start GUI server, configure and run training
     network_gui.init(args.ip, args.port)
