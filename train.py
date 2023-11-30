@@ -229,6 +229,9 @@ def training_report_wandb(iteration, Ll1, loss, l1_loss, elapsed, testing_iterat
             if param_group["name"] == "xyz":
                 lr = param_group['lr']
                 wandb.log({'learning_rates/xyz': lr}, step = iteration)
+    # Report #points at the beginnig of the training
+    if iteration == 1:
+        wandb.log({"scene/total_points": scene.gaussians.get_xyz.shape[0]}, step = iteration)
     # Report test and samples of training set
     if iteration in testing_iterations:
         torch.cuda.empty_cache()
@@ -239,10 +242,14 @@ def training_report_wandb(iteration, Ll1, loss, l1_loss, elapsed, testing_iterat
             if config['cameras'] and len(config['cameras']) > 0:
                 l1_test = 0.0
                 psnr_test = 0.0
+                if config['name'] == "test":
+                    num_log = len(config['cameras'])        # log all test images
+                else:
+                    num_log = 5
                 for idx, viewpoint in enumerate(config['cameras']):
                     image = torch.clamp(renderFunc(viewpoint, scene.gaussians, *renderArgs)["render"], 0.0, 1.0)
                     gt_image = torch.clamp(viewpoint.original_image.to("cuda"), 0.0, 1.0)
-                    if idx < 5:
+                    if idx < num_log:
                         wandb.log({config['name'] + "_view/{}/render".format(viewpoint.image_name): wandb.Image(image[None], caption="Render")}, step=iteration)
                         image_grid = torch.cat((image, gt_image), dim=-1)
                         wandb.log({config['name'] + "_view/{}/combined".format(viewpoint.image_name): wandb.Image(image_grid[None], caption="Left:Render, Right:GT")}, step=iteration)
