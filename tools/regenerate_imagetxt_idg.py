@@ -5,6 +5,7 @@ import json
 from scipy.spatial.transform import Rotation as R
 import open3d as o3d
 import shutil
+from tqdm import tqdm
 
 def read_args():
     parser = argparse.ArgumentParser(description='transfer IDG dataset to COLMAP format')
@@ -26,6 +27,7 @@ def read_intrinsics(f_x,f_y,w,h):
     return in_K
 
 def get_camera_in_ex(param, key):
+
     H = param[key]['height']
     W = param[key]['width']
     cam2world_temp=np.array(param[key]['transform_matrix'])
@@ -65,19 +67,21 @@ if __name__ == "__main__":
     intrinsics = {}
 
     for key in block_split:
-        if 'spherical_backward' in key:
-            continue
+        # if 'spherical_backward' in key:
+        #     continue
+
         in_K, c2w, H, W = get_camera_in_ex(para_data, key)
         cam_to_world[f'{key}.jpg'] = c2w
         image_names.append(f'{key}.jpg')
         
     f_w = open(os.path.join(output_dir, 'sparse/0/images.txt'), 'w')
-    print(image_list_path)
+    # print(image_list_path)
     
+    print("generating image.txt ...")
     with open(os.path.join(image_list_path, 'image_list.txt'), 'r') as l_r:
         lines = l_r.readlines()
-        print(lines)
-        for line in lines:
+        # print(lines)
+        for line in tqdm(lines):
             
             image_id, image_name, camera_id = line.strip().split()
             transform = cam_to_world[image_name]

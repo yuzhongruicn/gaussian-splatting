@@ -51,6 +51,11 @@ if __name__ == '__main__':
         
     xyz = np.asarray(pcd_all.points)
     print('#points: ', xyz.shape[0])
+    point_max_coordinate = np.max(xyz, axis=0)
+    point_min_coordinate = np.min(xyz, axis=0)
+    scene_center = (point_max_coordinate + point_min_coordinate) / 2
+    scene_size = np.max(point_max_coordinate - point_min_coordinate)
+    print(f'PCD: center {scene_center}, size {scene_size}')
     # exit()
     rgb = np.asarray(pcd_all.colors) * 255
     rgb = rgb.astype(int)

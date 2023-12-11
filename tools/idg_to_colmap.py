@@ -29,6 +29,7 @@ def read_intrinsics(f_x,f_y,w,h):
     return in_K
 
 def get_camera_in_ex(param, key):
+
     H = param[key]['height']
     W = param[key]['width']
     cam2world_temp=np.array(param[key]['transform_matrix'])
@@ -74,8 +75,11 @@ if __name__ == "__main__":
     intrinsics = {}
 
     for key in block_split:
-        if 'spherical_backward' in key:
-            continue
+        # if 'spherical' in key:
+        #     continue
+        # camera = key[:-14]
+        # timestep = key[-13:]
+        # key_ = camera + '_' + timestep
         in_K, c2w, H, W = get_camera_in_ex(para_data, key)
         cam_to_world[f'{key}.jpg'] = c2w
         image_names.append(f'{key}.jpg')
@@ -90,7 +94,7 @@ if __name__ == "__main__":
     # f_w = open(os.path.join(output_dir, 'sparse/0/images.txt'), 'w')
     c_w = open(os.path.join(output_dir, 'sparse/0/cameras.txt'), 'w')
 
-
+    print(len(image_names))
     for idx, name in enumerate(image_names):
         # transform = cam_to_world[name]
         # transform = np.linalg.inv(transform)

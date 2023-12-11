@@ -114,23 +114,23 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder, load_mask=F
     sys.stdout.write('\n')
     return cam_infos
 
-def fetchPly(path, bg_path=None):
+def fetchPly(path):
     plydata = PlyData.read(path)
     vertices = plydata['vertex']
     positions = np.vstack([vertices['x'], vertices['y'], vertices['z']]).T
     colors = np.vstack([vertices['red'], vertices['green'], vertices['blue']]).T / 255.0
     normals = np.vstack([vertices['nx'], vertices['ny'], vertices['nz']]).T
 
-    if bg_path is not None:
-        bg_plydata = PlyData.read(bg_path)
-        bg_vertices = bg_plydata['vertex']
-        bg_positions = np.vstack([bg_vertices['x'], bg_vertices['y'], bg_vertices['z']]).T
-        bg_colors = np.vstack([bg_vertices['red'], bg_vertices['green'], bg_vertices['blue']]).T / 255.0
-        bg_normals = np.vstack([bg_vertices['nx'], bg_vertices['ny'], bg_vertices['nz']]).T
+    # if bg_path is not None:
+    #     bg_plydata = PlyData.read(bg_path)
+    #     bg_vertices = bg_plydata['vertex']
+    #     bg_positions = np.vstack([bg_vertices['x'], bg_vertices['y'], bg_vertices['z']]).T
+    #     bg_colors = np.vstack([bg_vertices['red'], bg_vertices['green'], bg_vertices['blue']]).T / 255.0
+    #     bg_normals = np.vstack([bg_vertices['nx'], bg_vertices['ny'], bg_vertices['nz']]).T
 
-        positions = np.concatenate([positions, bg_positions], axis=0)
-        colors = np.concatenate([colors, bg_colors], axis=0)
-        normals = np.concatenate([normals, bg_normals], axis=0)
+    #     positions = np.concatenate([positions, bg_positions], axis=0)
+    #     colors = np.concatenate([colors, bg_colors], axis=0)
+    #     normals = np.concatenate([normals, bg_normals], axis=0)
     return BasicPointCloud(points=positions, colors=colors, normals=normals)
 
 def storePly(path, xyz, rgb):
@@ -150,13 +150,15 @@ def storePly(path, xyz, rgb):
     ply_data = PlyData([vertex_element])
     ply_data.write(path)
 
-def make_spherical_bg(xyz, rgb, num_points, dist):
+def add_spherical_bg(pcd : BasicPointCloud, num_points, dist):
     '''
     Add virtual spherical background points
     modeified from 
     https://github.com/yzslab/gaussian-splatting-lightning/blob/e258e08dbd058c538ffb751cb296499940456ed2/internal/dataset.py#L232
 
     '''
+    xyz = pcd.points
+    rgb = pcd.colors * 255.0
     point_max_coordinate = np.max(xyz, axis=0)
     point_min_coordinate = np.min(xyz, axis=0)
     scene_center = (point_max_coordinate + point_min_coordinate) / 2
@@ -173,14 +175,14 @@ def make_spherical_bg(xyz, rgb, num_points, dist):
     unit_sphere_points = np.concatenate([x[:, None], y[:, None], z[:, None]], axis=1)
     # build background sphere
     background_sphere_point_xyz = (unit_sphere_points * scene_size * dist) + scene_center
-    background_sphere_point_rgb = np.asarray(np.random.random(background_sphere_point_xyz.shape) * 255, dtype=np.uint8)
+    background_sphere_point_rgb = np.asarray(np.random.random(background_sphere_point_xyz.shape) * 255.0)
     # add background sphere to scene
-    # xyz = np.concatenate([xyz, background_sphere_point_xyz], axis=0)
-    # rgb = np.concatenate([rgb, background_sphere_point_rgb], axis=0)
+    xyz = np.concatenate([xyz, background_sphere_point_xyz], axis=0)
+    rgb = np.concatenate([rgb, background_sphere_point_rgb], axis=0)
 
-    return background_sphere_point_xyz, background_sphere_point_rgb
+    return background_sphere_point_xyz, background_sphere_point_rgb, xyz, rgb
 
-def readColmapSceneInfo(path, images, eval, llffhold=8):
+def readColmapSceneInfo(path, images, eval, llffhold=8, load_mask=False, spherical_bg=False, num_bg_points=10000, bg_dist=1.0):
     try:
         cameras_extrinsic_file = os.path.join(path, "sparse/0", "images.bin")
         cameras_intrinsic_file = os.path.join(path, "sparse/0", "cameras.bin")
@@ -203,6 +205,9 @@ def readColmapSceneInfo(path, images, eval, llffhold=8):
         train_cam_infos = cam_infos
         test_cam_infos = []
 
+    print("#Training poses: ", len(train_cam_infos))
+    print("#Test poses: ", len(test_cam_infos))
+
     nerf_normalization = getNerfppNorm(train_cam_infos)
 
     ply_path = os.path.join(path, "sparse/0/points3D.ply")
@@ -219,6 +224,16 @@ def readColmapSceneInfo(path, images, eval, llffhold=8):
         pcd = fetchPly(ply_path)
     except:
         pcd = None
+    
+    if spherical_bg and pcd is not None:
+        bg_path = os.path.join(path, f"sparse/0/bg_{num_bg_points}_{bg_dist}.ply")
+        ply_path = os.path.join(path, "sparse/0/points3D_with_bg.ply")
+        print(f"Making spherical background with {num_bg_points} points.")
+
+        bg_xyz, bg_rgb, xyz_all, rgb_all = add_spherical_bg(pcd, num_points=num_bg_points, dist=bg_dist)
+        storePly(bg_path, bg_xyz, bg_rgb)
+        storePly(ply_path, xyz_all, rgb_all)
+        pcd = fetchPly(ply_path)  
 
     scene_info = SceneInfo(point_cloud=pcd,
                            train_cameras=train_cam_infos,
@@ -268,22 +283,7 @@ def readIDGSceneInfo(path, images, eval, block="block_0", load_mask=False, spher
     ply_path = os.path.join(path, "sparse/0/points3D.ply")
     bin_path = os.path.join(path, "sparse/0/points3D.bin")
     txt_path = os.path.join(path, "sparse/0/points3D.txt")
-
-    if spherical_bg:
-        bg_path = os.path.join(path, f"sparse/0/bg_{num_bg_points}_{bg_dist}.ply")
-        if not os.path.exists(bg_path):
-            print(f"Making spherical background with {num_bg_points} points.")
-            try:
-                xyz, rgb, _ = read_points3D_binary(bin_path)
-            except:
-                xyz, rgb, _ = read_points3D_text(txt_path)
-            bg_xyz, bg_rgb = make_spherical_bg(xyz, rgb, num_points=num_bg_points, dist=bg_dist)
-            storePly(bg_path, bg_xyz, bg_rgb)
-            if not os.path.exists(ply_path):
-                print("Converting point3d.bin to .ply, will happen only the first time you open the scene.")
-                storePly(ply_path, xyz, rgb)
-    else:
-        bg_path = None
+    bg_path = None
 
     if not os.path.exists(ply_path):
         print("Converting point3d.bin to .ply, will happen only the first time you open the scene.")
@@ -292,11 +292,22 @@ def readIDGSceneInfo(path, images, eval, block="block_0", load_mask=False, spher
         except:
             xyz, rgb, _ = read_points3D_text(txt_path)
         storePly(ply_path, xyz, rgb)
-        
+    
     try:
-        pcd = fetchPly(ply_path, bg_path)
+        pcd = fetchPly(ply_path)
     except:
         pcd = None
+
+    if spherical_bg and pcd is not None:
+        bg_path = os.path.join(path, f"sparse/0/bg_{num_bg_points}_{bg_dist}.ply")
+        ply_path = os.path.join(path, "sparse/0/points3D_with_bg.ply")
+        print(f"Making spherical background with {num_bg_points} points.")
+
+        bg_xyz, bg_rgb, xyz_all, rgb_all = add_spherical_bg(pcd, num_points=num_bg_points, dist=bg_dist)
+        storePly(bg_path, bg_xyz, bg_rgb)
+        storePly(ply_path, xyz_all, rgb_all)
+        pcd = fetchPly(ply_path)    
+     
 
     scene_info = SceneInfo(point_cloud=pcd,
                            train_cameras=train_cam_infos,
