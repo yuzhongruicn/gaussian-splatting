@@ -36,12 +36,12 @@ def readImages(renders_dir, gt_dir):
             image_names.append(fname)
     return renders, gts, image_names
 
-def readMasks(mask_path, image_names):
+def readMasks(mask_path, image_names, shape):
     print("load masks from: ", mask_path)
     masks = []
     for image_name in image_names:
-        mask = Image.open(os.path.join(mask_path, image_name.split('.')[0] + '.jpg'))
-        mask = PILtoTorch(mask, [1440, 930]).cuda()
+        mask = Image.open(os.path.join(mask_path, image_name.split('.')[0] + '.jpg')).convert('L')
+        mask = PILtoTorch(mask, shape).cuda()
         masks.append(mask)
     return masks
 
@@ -75,12 +75,12 @@ def evaluate(model_paths, mask_path=None):
             per_view_dict_polytopeonly[scene_dir][method] = {}
 
             method_dir = test_dir / method
-            gt_dir = method_dir/ "gt"
+            gt_dir = method_dir/ "gt" 
             renders_dir = method_dir / "renders"
             renders, gts, image_names = readImages(renders_dir, gt_dir)
 
             if load_mask:
-                masks = readMasks(mask_path, image_names)
+                masks = readMasks(mask_path, image_names, [gts[0].shape[-1], gts[0].shape[-2]])
 
             ssims = []
             psnrs = []
