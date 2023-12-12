@@ -387,6 +387,7 @@ class GaussianModel:
         self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacities, new_scaling, new_rotation)
 
     def densify_and_prune(self, max_grad, min_opacity, extent, max_screen_size):
+        # extent = extent * 10
         grads = self.xyz_gradient_accum / self.denom
         grads[grads.isnan()] = 0.0
 
