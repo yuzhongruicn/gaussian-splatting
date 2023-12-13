@@ -112,6 +112,16 @@ class WandbParams(ParamGroup):
         self.run_name = ""
         super().__init__(parser, "Wandb Parameters")
 
+class ApOptParams(ParamGroup):
+    def __init__(self, parser):
+        self.iterations = 30_000
+        self.lr_init = 0.00016
+        self.lr_final = 0.0000016
+        self.lr_delay_mult = 0.01
+        self.lr_max_steps = 25_000
+        self.lambda_dssim = 0.2
+        super().__init__(parser, "Optimization Parameters for appeareance net")
+
 
 def get_combined_args(parser : ArgumentParser):
     cmdlne_string = sys.argv[1:]
