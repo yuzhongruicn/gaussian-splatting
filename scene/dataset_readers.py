@@ -37,6 +37,7 @@ class CameraInfo(NamedTuple):
     height: int
     mask: np.array
     mask_path: str
+    frame_id : int
 
 class SceneInfo(NamedTuple):
     point_cloud: BasicPointCloud
@@ -109,7 +110,7 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder, load_mask=F
             assert mask.size == image.size, f'mask size {mask.size} does not match image size {image.size}'
 
         cam_info = CameraInfo(uid=uid, R=R, T=T, FovY=FovY, FovX=FovX, image=image,
-                              image_path=image_path, image_name=image_name, width=width, height=height, mask=mask, mask_path=mask_path)
+                              image_path=image_path, image_name=image_name, width=width, height=height, mask=mask, mask_path=mask_path, frame_id=-1)
         cam_infos.append(cam_info)
     sys.stdout.write('\n')
     return cam_infos
@@ -268,8 +269,19 @@ def readIDGSceneInfo(path, images, eval, block="block_0", load_mask=False, spher
     test_list = [element[0] for element in split_block["val"]]
 
     if eval:
-        train_cam_infos = [c for c in cam_infos if c.image_name in train_list]
-        test_cam_infos = [c for c in cam_infos if c.image_name in test_list]
+        train_cam_infos = []
+        test_cam_infos = []
+        for c in cam_infos:
+            if c.image_name in train_list:
+                idx = train_list.index(c.image_name)
+                c = c._replace(frame_id=split_block["train"]["elements"][idx][1])
+                train_cam_infos.append(c)
+            elif c.image_name in test_list:
+                idx = test_list.index(c.image_name)
+                c = c._replace(frame_id=split_block["val"][idx][1])
+                test_cam_infos.append(c)
+        # train_cam_infos = [c for c in cam_infos if c.image_name in train_list]
+        # test_cam_infos = [c for c in cam_infos if c.image_name in test_list]
     else:
         train_cam_infos = cam_infos
         test_cam_infos = []

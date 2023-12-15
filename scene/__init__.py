@@ -16,6 +16,7 @@ import numpy as np
 from utils.system_utils import searchForMaxIteration
 from scene.dataset_readers import sceneLoadTypeCallbacks
 from scene.gaussian_model import GaussianModel
+from scene.appearance_model import AppearanceModel
 from arguments import ModelParams
 from utils.camera_utils import cameraList_from_camInfos, camera_to_JSON
 
@@ -71,6 +72,12 @@ class Scene:
                 json_cams.append(camera_to_JSON(id, cam))
             with open(os.path.join(self.model_path, "cameras.json"), 'w') as file:
                 json.dump(json_cams, file)
+        
+        # if args.data_format == "idg":
+        #     first_frame = scene_info.train_cameras[0].image_name
+        #     self.first_timest = float(first_frame.split("_")[1].split(".")[0])
+        #     last_frame = scene_info.train_cameras[-1].image_name
+        #     self.last_timest = float(last_frame.split("_")[1].split(".")[0])
 
         if shuffle:
             random.shuffle(scene_info.train_cameras)  # Multi-res consistent random shuffling

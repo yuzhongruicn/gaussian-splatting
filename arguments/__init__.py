@@ -103,6 +103,12 @@ class OptimizationParams(ParamGroup):
         self.densify_until_iter = 15_000
         self.densify_grad_threshold = 0.0002
         self.random_background = False
+
+        self.ap_lr_init = 0.0001
+        self.ap_lr_final = 0.000001
+        self.ap_lr_delay_mult = 0.01
+        self.ap_lr_max_steps = 30_000
+        self.warm_up = 1000
         super().__init__(parser, "Optimization Parameters")
 
 class WandbParams(ParamGroup):
@@ -115,11 +121,12 @@ class WandbParams(ParamGroup):
 class ApOptParams(ParamGroup):
     def __init__(self, parser):
         self.iterations = 30_000
-        self.lr_init = 0.00016
-        self.lr_final = 0.0000016
+        self.lr_init = 0.0001
+        self.lr_final = 0.000001
         self.lr_delay_mult = 0.01
-        self.lr_max_steps = 25_000
+        self.lr_max_steps = 30_000
         self.lambda_dssim = 0.2
+        # self.lambda_img = 0.9
         super().__init__(parser, "Optimization Parameters for appeareance net")
 
 

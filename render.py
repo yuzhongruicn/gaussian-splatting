@@ -27,14 +27,20 @@ def render_set(model_path, name, iteration, views, gaussians, pipeline, backgrou
 
     makedirs(render_path, exist_ok=True)
     makedirs(gts_path, exist_ok=True)
+    # feat_path = os.path.join(model_path, name, "ours_{}".format(iteration), "rendered_feat")
+    # makedirs(feat_path, exist_ok=True)
 
     for idx, view in enumerate(tqdm(views, desc="Rendering progress")):
-        rendering = render(view, gaussians, pipeline, background)["render"]
+        render_pkg = render(view, gaussians, pipeline, background)
+        rendering = render_pkg["render"]
         gt = view.original_image[0:3, :, :]
         # torchvision.utils.save_image(rendering, os.path.join(render_path, '{0:05d}'.format(idx) + f"_{view.image_name}" + ".png"))
         # torchvision.utils.save_image(gt, os.path.join(gts_path, '{0:05d}'.format(idx) + f"_{view.image_name}" +  ".png"))
         torchvision.utils.save_image(rendering, os.path.join(render_path, f"{view.image_name}" + ".png"))
         torchvision.utils.save_image(gt, os.path.join(gts_path, f"{view.image_name}" +  ".png"))
+
+        # rendered_feat = render_pkg["rendered_feat"]
+        # torch.save(rendered_feat, os.path.join(feat_path, f"{view.image_name}" + ".pt"))
 
 def render_sets(dataset : ModelParams, iteration : int, pipeline : PipelineParams, skip_train : bool, skip_test : bool, free_view : bool):
     with torch.no_grad():
