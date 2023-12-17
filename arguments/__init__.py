@@ -108,7 +108,8 @@ class OptimizationParams(ParamGroup):
         self.ap_lr_final = 0.000001
         self.ap_lr_delay_mult = 0.01
         self.ap_lr_max_steps = 30_000
-        self.warm_up = 1000
+        self.warm_up = 4000
+        self.embedding_dim = 32
         super().__init__(parser, "Optimization Parameters")
 
 class WandbParams(ParamGroup):

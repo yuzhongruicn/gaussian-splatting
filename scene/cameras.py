@@ -19,7 +19,8 @@ import torchvision.utils
 class Camera(nn.Module):
     def __init__(self, colmap_id, R, T, FoVx, FoVy, image, gt_alpha_mask,
                  image_name, uid,
-                 trans=np.array([0.0, 0.0, 0.0]), scale=1.0, data_device = "cuda", mask=None
+                 trans=np.array([0.0, 0.0, 0.0]), scale=1.0, data_device = "cuda", 
+                 mask=None, frame_id=-1,
                  ):
         super(Camera, self).__init__()
 
@@ -31,6 +32,7 @@ class Camera(nn.Module):
         self.FoVy = FoVy
         self.image_name = image_name
         self.mask = None
+        self.frame_id = frame_id
 
         try:
             self.data_device = torch.device(data_device)

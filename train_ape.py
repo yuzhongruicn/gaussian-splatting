@@ -37,7 +37,7 @@ def training(dataset : ModelParams, opt : OptimizationParams, pipe : PipelinePar
     gaussians = GaussianModel(dataset.sh_degree)
     scene = Scene(dataset, gaussians)
     gaussians.training_setup(opt)
-    appearance_model = AppearanceModel()
+    appearance_model = AppearanceModel(shs_dim=3*(gaussians.max_sh_degree+1)**2, embed_out_dim=opt.embedding_dim)
     appearance_model.training_setup(opt)
 
     if checkpoint:
@@ -73,6 +73,7 @@ def training(dataset : ModelParams, opt : OptimizationParams, pipe : PipelinePar
         iter_start.record()
 
         gaussians.update_learning_rate(iteration)
+        appearance_model.updata_lr(iteration)
 
         # Every 1000 its we increase the levels of SH up to a maximum degree
         if iteration % 1000 == 0:
@@ -89,9 +90,23 @@ def training(dataset : ModelParams, opt : OptimizationParams, pipe : PipelinePar
 
         bg = torch.rand((3), device="cuda") if opt.random_background else background
 
-        render_pkg = render(viewpoint_cam, gaussians, pipe, bg)
+        if iteration < opt.warm_up:
+            model_appearace = False
+            d_shs = None
+        else:
+            model_appearace = True
+            shs = gaussians.get_features
+            # shs_view = gaussians.get_features.transpose(1, 2).view(-1, 3, (gaussians.max_sh_degree+1)**2).detach()
+            # print('shs_view', shs_view.shape)
+            N = shs.shape[0]
+            shs = shs.view(N, -1)
+            frame_id = torch.tensor([viewpoint_cam.frame_id], device="cuda")
+            frame_id = frame_id.unsqueeze(0).expand(N, 1)
+            d_shs = appearance_model.step(shs.detach(), frame_id)
+            d_shs = d_shs.view(-1, (gaussians.max_sh_degree+1)**2, 3)
+
+        render_pkg = render(viewpoint_cam, gaussians, pipe, bg, model_appearace, d_shs)
         image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
-        # rendered_feat = render_pkg["rendered_feat"]
 
         # Loss
         gt_image = viewpoint_cam.original_image.cuda()
@@ -120,10 +135,11 @@ def training(dataset : ModelParams, opt : OptimizationParams, pipe : PipelinePar
 
             # Log and save
             # training_report(tb_writer, iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end), testing_iterations, scene, render, (pipe, background), gaussians, dataset.mask)
-            training_report_wandb(iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end), testing_iterations, scene, render, (pipe, background), gaussians, dataset.mask)
+            training_report_wandb(iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end), testing_iterations, scene, render, (pipe, background), gaussians, appearance_model, dataset.mask)
             if (iteration in saving_iterations):
                 print("\n[ITER {}] Saving Gaussians".format(iteration))
                 scene.save(iteration)
+                appearance_model.save_weights(scene.model_path, iteration)
 
             # Densification
             if iteration < opt.densify_until_iter:
@@ -141,7 +157,9 @@ def training(dataset : ModelParams, opt : OptimizationParams, pipe : PipelinePar
             # Optimizer step
             if iteration < opt.iterations:
                 gaussians.optimizer.step()
+                appearance_model.optimizer.step()
                 gaussians.optimizer.zero_grad(set_to_none = True)
+                appearance_model.optimizer.zero_grad()
 
             if (iteration in checkpoint_iterations):
                 print("\n[ITER {}] Saving Checkpoint".format(iteration))
@@ -224,24 +242,32 @@ def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_i
             tb_writer.add_scalar('total_points', scene.gaussians.get_xyz.shape[0], iteration)
         torch.cuda.empty_cache()
 
-def training_report_wandb(iteration, Ll1, loss, l1_loss, elapsed, testing_iterations, scene : Scene, renderFunc, renderArgs, gaussians : GaussianModel, load_mask=False):
+def training_report_wandb(iteration, Ll1, loss, l1_loss, elapsed, testing_iterations, scene : Scene, renderFunc, renderArgs, gaussians : GaussianModel, appearance_model, load_mask=False):
+    wandb.watch(appearance_model.appearance_net, log="all") 
     wandb.log({'train_loss/patches_l1_loss': Ll1.item(),
                'train_loss/patches_total_loss': loss.item(),
                'iter_time': elapsed},
                step = iteration)
+    for param_group in appearance_model.optimizer.param_groups:
+        if param_group["name"] == "xyz":
+            lr = param_group['lr']
+            wandb.log({'learning_rates/xyz': lr}, step = iteration)
     for param_group in gaussians.optimizer.param_groups:
-            if param_group["name"] == "xyz":
-                lr = param_group['lr']
-                wandb.log({'learning_rates/xyz': lr}, step = iteration)
+        if param_group["name"] == "Appearance_Model":
+            lr = param_group['lr']
+            wandb.log({'learning_rates/appearance_model': lr}, step = iteration)
     # Report #points at the beginnig of the training
     if iteration == 1:
         wandb.log({"scene/total_points": scene.gaussians.get_xyz.shape[0]}, step = iteration)
     # Report test and samples of training set
     if iteration in testing_iterations:
         torch.cuda.empty_cache()
+        shs = scene.gaussians.get_features
+        N = shs.shape[0]
+        shs = shs.view(N, -1)
+
         validation_configs = ({'name': 'test', 'cameras' : scene.getTestCameras()}, 
                               {'name': 'train', 'cameras' : [scene.getTrainCameras()[idx % len(scene.getTrainCameras())] for idx in range(5, 30, 5)]})
-
         for config in validation_configs:
             if config['cameras'] and len(config['cameras']) > 0:
                 l1_test = 0.0
@@ -251,8 +277,15 @@ def training_report_wandb(iteration, Ll1, loss, l1_loss, elapsed, testing_iterat
                 else:
                     num_log = 5
                 for idx, viewpoint in enumerate(config['cameras']):
-                    image = torch.clamp(renderFunc(viewpoint, scene.gaussians, *renderArgs)["render"], 0.0, 1.0)
+                    
+                    frame_id = torch.tensor([viewpoint.frame_id], device="cuda")
+                    frame_id = frame_id.unsqueeze(0).expand(N, 1)
+                    d_shs = appearance_model.step(shs.detach(), frame_id)
+                    d_shs = d_shs.view(-1, (gaussians.max_sh_degree+1)**2, 3)
+
+                    image = torch.clamp(renderFunc(viewpoint, scene.gaussians, *renderArgs, model_appearance=True, d_shs=d_shs)["render"], 0.0, 1.0)
                     gt_image = torch.clamp(viewpoint.original_image.to("cuda"), 0.0, 1.0)
+                    
                     if idx < num_log:
                         wandb.log({config['name'] + "_view/{}/render".format(viewpoint.image_name): wandb.Image(image[None], caption="Render")}, step=iteration)
                         image_grid = torch.cat((image, gt_image), dim=-1)
