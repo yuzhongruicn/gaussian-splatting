@@ -90,39 +90,53 @@ class Embedding(nn.Module):
         self.embedding = nn.Embedding(self.in_dim, self.out_dim)
 
     def forward(self, in_tensor):
-        return self.embedding(in_tensor)
+        return self.embedding(in_tensor).squeeze(1)
 
 class AppearanceNet(nn.Module):
-    def __init__(self, D=8, W=256, shs_dim=48, embed_out_dim=32):
+    def __init__(self, D=4, W=128, shs_dim=48, embed_out_dim=32, multires=10, num_views=1):
         super(AppearanceNet, self).__init__()
 
         self.skips = [D // 2]
         self.t_multires = 10
-        self.embed_fn, self.embed_in_dim = get_embedder(self.t_multires, 1)
-
         self.embed_out_dim = embed_out_dim
 
-        self.embednet = nn.Sequential(
-                nn.Linear(self.embed_in_dim, 256), 
-                nn.ReLU(inplace=True),
-                nn.Linear(256, self.embed_out_dim))
+        # self.embed_fn, self.embed_in_dim = get_embedder(self.t_multires, 1)
+        # self.embednet = nn.Sequential(
+        #         nn.Linear(self.embed_in_dim, 128), 
+        #         nn.ReLU(inplace=True),
+        #         nn.Linear(128, self.embed_out_dim))
+
+        self.embednet = Embedding(in_dim=num_views, out_dim=self.embed_out_dim)
+
+        self.embed_xyz_fn, self.embed_xyz_dim = get_embedder(multires, 3)
         
         self.linear = nn.ModuleList(
-                [nn.Linear(shs_dim + self.embed_out_dim, W)] + 
-                [nn.Linear(W, W) if i not in self.skips else nn.Linear(W + shs_dim + self.embed_out_dim, W)
+                [nn.Linear(shs_dim + self.embed_out_dim + self.embed_xyz_dim, W)] + 
+                [nn.Linear(W, W) if i not in self.skips else nn.Linear(W + shs_dim + self.embed_out_dim + self.embed_xyz_dim, W)
                     for i in range(D - 1)]
             )
+        
+        # self.linear = nn.ModuleList(
+        #         [nn.Linear(shs_dim + self.embed_out_dim, W)] + 
+        #         [nn.Linear(W, W) if i not in self.skips else nn.Linear(W + shs_dim + self.embed_out_dim, W)
+        #             for i in range(D - 1)]
+        #     )
         self.output = nn.Linear(W, shs_dim)
 
-    def forward(self, x, fid):
-        embedding = self.embednet(self.embed_fn(fid))
-        h = torch.cat([x, embedding], dim=-1)
+    def forward(self, shs, xyz, fid):
+    # def forward(self, shs, fid):
+        # embedding = self.embednet(self.embed_fn(fid))
+        embedding = self.embednet(fid)
+        embed_xyz = self.embed_xyz_fn(xyz)
+        h = torch.cat([shs, embed_xyz, embedding], dim=-1)
+        # h = torch.cat([shs, embedding], dim=-1)
         for i, _ in enumerate(self.linear):
             h = self.linear[i](h)
             h = F.relu(h)
             if i in self.skips:
-                h = torch.cat([x, embedding, h], dim=-1)
-
+                h = torch.cat([shs, embed_xyz, embedding, h], dim=-1)
+                # h = torch.cat([shs, embedding, h], dim=-1)
+            
         d_shs = self.output(h)
 
         return d_shs

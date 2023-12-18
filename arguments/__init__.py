@@ -65,6 +65,9 @@ class ModelParams(ParamGroup):
         self.spherical_bg = False
         self.num_bg_points = 10_000
         self.bg_dist = 1.0
+        self.load2gpu_on_the_fly = False
+
+        self.embedding_dim = 32
         super().__init__(parser, "Loading Parameters", sentinel)
 
     def extract(self, args):
@@ -109,7 +112,6 @@ class OptimizationParams(ParamGroup):
         self.ap_lr_delay_mult = 0.01
         self.ap_lr_max_steps = 30_000
         self.warm_up = 4000
-        self.embedding_dim = 32
         super().__init__(parser, "Optimization Parameters")
 
 class WandbParams(ParamGroup):
