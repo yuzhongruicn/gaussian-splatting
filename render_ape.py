@@ -73,7 +73,8 @@ def render_sets(dataset : ModelParams, iteration : int, pipeline : PipelineParam
     with torch.no_grad():
         gaussians = GaussianModel(dataset.sh_degree)
         scene = Scene(dataset, gaussians, load_iteration=iteration, shuffle=False)
-        appearance_model = AppearanceModel(shs_dim=3*(gaussians.max_sh_degree+1)**2, embed_out_dim=32)
+        num_views = len(scene.getTrainCameras())
+        appearance_model = AppearanceModel(shs_dim=3*(gaussians.max_sh_degree+1)**2, embed_out_dim=32, num_views=num_views)
         appearance_model.load_weights(dataset.model_path, iteration=iteration)
     
         bg_color = [1,1,1] if dataset.white_background else [0, 0, 0]
