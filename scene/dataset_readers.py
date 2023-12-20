@@ -283,7 +283,16 @@ def readIDGSceneInfo(path, images, eval, block="block_0", load_mask=False, spher
         # train_cam_infos = [c for c in cam_infos if c.image_name in train_list]
         # test_cam_infos = [c for c in cam_infos if c.image_name in test_list]
     else:
-        train_cam_infos = cam_infos
+        train_cam_infos = []
+        for c in cam_infos:
+            if c.image_name in train_list:
+                idx = train_list.index(c.image_name)
+                c = c._replace(frame_id=split_block["train"]["elements"][idx][1])
+                train_cam_infos.append(c)
+            elif c.image_name in test_list:
+                idx = test_list.index(c.image_name)
+                c = c._replace(frame_id=split_block["val"][idx][1])
+                train_cam_infos.append(c)
         test_cam_infos = []
 
     print("#Training poses: ", len(train_cam_infos))

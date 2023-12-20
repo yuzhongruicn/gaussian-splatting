@@ -7,8 +7,8 @@ from utils.system_utils import searchForMaxIteration
 from utils.appearance_utils import AppearanceNet
 
 class AppearanceModel:
-    def __init__(self, shs_dim, embed_out_dim, num_views):
-        self.appearance_net = AppearanceNet(shs_dim=shs_dim, embed_out_dim=embed_out_dim, num_views=num_views).cuda()
+    def __init__(self, shs_dim, embed_out_dim, num_views, num_hidden_layers=4, num_hidden_neurons=128):
+        self.appearance_net = AppearanceNet(D=num_hidden_layers, W=num_hidden_neurons, shs_dim=shs_dim, embed_out_dim=embed_out_dim, num_views=num_views).cuda()
         self.optimizer 	= None
 
     def step(self, sh_feat, xyz, frame_id, max_batch_size=8192):

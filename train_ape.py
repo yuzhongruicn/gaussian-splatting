@@ -39,7 +39,7 @@ def training(dataset : ModelParams, opt : OptimizationParams, pipe : PipelinePar
     scene = Scene(dataset, gaussians)
     num_views = len(scene.getTrainCameras())
     gaussians.training_setup(opt)
-    appearance_model = AppearanceModel(shs_dim=3*(gaussians.max_sh_degree+1)**2, embed_out_dim=dataset.embedding_dim, num_views=num_views)
+    appearance_model = AppearanceModel(shs_dim=3*(gaussians.max_sh_degree+1)**2, embed_out_dim=dataset.embedding_dim, num_views=num_views, num_hidden_layers=dataset.ap_num_hidden_layers, num_hidden_neurons=dataset.ap_num_hidden_neurons)
     appearance_model.training_setup(opt)
 
     if checkpoint:
@@ -114,23 +114,16 @@ def training(dataset : ModelParams, opt : OptimizationParams, pipe : PipelinePar
             xyz_visible = xyz.view(N, -1)[visibility_filter]
             N_VIS = shs_visible.shape[0]
             frame_id = viewpoint_cam.frame_id.unsqueeze(0).expand(N_VIS, 1)
-            # d_shs_vis = appearance_model.step(shs_visible.detach(), frame_id)
-            d_shs_vis = appearance_model.step(shs_visible.detach(), xyz_visible.detach(), frame_id)
+            # d_shs_vis = appearance_model.step(shs_visible.detach(), xyz_visible.detach(), frame_id)
+            d_shs_vis = appearance_model.step(shs_visible, xyz_visible, frame_id)
+
             d_shs_vis = d_shs_vis.view(-1, (gaussians.max_sh_degree+1)**2, 3)
             d_shs = torch.zeros_like(shs)
             d_shs[visibility_filter] = d_shs_vis
 
-            # shs = shs.view(N, -1)
-            # frame_id = viewpoint_cam.frame_id.unsqueeze(0).expand(N, 1)
-            # d_shs = appearance_model.step(shs.detach(), xyz.detach(), frame_id)
-            # d_shs = d_shs_vis.view(-1, (gaussians.max_sh_degree+1)**2, 3)
 
             render_pkg = render(viewpoint_cam, gaussians, pipe, bg, model_appearace, d_shs)
             image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
-
-
-        # render_pkg = render(viewpoint_cam, gaussians, pipe, bg, model_appearace, d_shs)
-        # image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
 
         # Loss
         gt_image = viewpoint_cam.original_image.cuda()
