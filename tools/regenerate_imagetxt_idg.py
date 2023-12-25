@@ -10,7 +10,6 @@ from tqdm import tqdm
 def read_args():
     parser = argparse.ArgumentParser(description='transfer IDG dataset to COLMAP format')
     parser.add_argument('-s', '--data_path', type=str)
-    parser.add_argument('--image_list_path', type=str)
     parser.add_argument('-o', '--output_path', type=str)
     parser.add_argument('--block', type=str, default='block_0')
 
@@ -43,7 +42,6 @@ if __name__ == "__main__":
     args = read_args()
 
     data_path =  args.data_path
-    image_list_path = args.image_list_path
     block = args.block
     split_json_file = os.path.join(data_path, 'json', 'idg_split.json')
     para_json_file = os.path.join(data_path, 'json', 'idg_info.json')
@@ -74,11 +72,10 @@ if __name__ == "__main__":
         cam_to_world[f'{key}.jpg'] = c2w
         image_names.append(f'{key}.jpg')
         
-    f_w = open(os.path.join(output_dir, 'sparse/0/images.txt'), 'w')
-    # print(image_list_path)
+    f_w = open(os.path.join(output_dir, 'sparse/1/images.txt'), 'w')
     
     print("generating image.txt ...")
-    with open(os.path.join(image_list_path, 'image_list.txt'), 'r') as l_r:
+    with open(os.path.join(output_dir, 'image_list.txt'), 'r') as l_r:
         lines = l_r.readlines()
         # print(lines)
         for line in tqdm(lines):

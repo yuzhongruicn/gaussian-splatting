@@ -59,7 +59,7 @@ class ModelParams(ParamGroup):
         self._white_background = False
         self.data_device = "cuda"
         self.eval = False
-        self.data_format = ['colmap', 'idg', None]     #['colmap', 'idg']
+        self.data_format = ['idg', 'colmap', None]
         self.block = "block_0"
         self.mask = False
         self.spherical_bg = False
@@ -67,7 +67,10 @@ class ModelParams(ParamGroup):
         self.bg_dist = 1.0
         self.load2gpu_on_the_fly = False
 
+        self.add_appearance_embedding = False
         self.embedding_dim = 32
+        self.ap_num_hidden_layers = 4
+        self.ap_num_hidden_neurons = 128
         super().__init__(parser, "Loading Parameters", sentinel)
 
     def extract(self, args):
@@ -114,7 +117,7 @@ class OptimizationParams(ParamGroup):
         self.warm_up = 4000
         super().__init__(parser, "Optimization Parameters")
 
-class WandbParams(ParamGroup):
+class LoggerParams(ParamGroup):
     def __init__(self, parser):
         self.wandb_disabled = False
         self.project_name = "3D Gaussian Splatting"
