@@ -15,6 +15,8 @@ def read_args():
     parser = argparse.ArgumentParser(description='transfer IDG dataset to COLMAP format')
     parser.add_argument('-s', '--data_path', type=str)
     parser.add_argument('-o', '--output_path', type=str)
+    parser.add_argument('--downsample', type=int, default=1)
+    parser.add_argument('--downsample_val', type=int, default=1)
     parser.add_argument('--block', type=str, default='block_0')
 
     return parser.parse_args()
@@ -56,14 +58,16 @@ if __name__ == "__main__":
         os.makedirs(output_dir)
         os.makedirs(os.path.join(output_dir, 'images'))
         os.makedirs(os.path.join(output_dir, 'sparse'))
-        os.makedirs(os.path.join(output_dir, 'sparse', '0'))
+        os.makedirs(os.path.join(output_dir, 'sparse', '1'))
         copy_img = True
 
     with open(split_json_file, 'r') as f:
         split_data = json.load(f)
 
-    train_split = [x[0] for x in split_data[block]['train']['elements']]
-    val_split = [x[0] for x in split_data[block]['val']]
+    downsample = args.downsample
+    downsample_val = args.downsample_val
+    train_split = [x[0] for i, x in enumerate(split_data[block]['train']['elements']) if i%downsample==0]
+    val_split = [x[0] for  i, x in enumerate( split_data[block]['val']) if i%downsample_val==0]
     block_split = train_split + val_split
     block_split.sort()
 
@@ -91,8 +95,7 @@ if __name__ == "__main__":
             shutil.copyfile(img_path, output_img_path)
             print(f'copy {img_path} to {output_img_path}')
 
-    # f_w = open(os.path.join(output_dir, 'sparse/0/images.txt'), 'w')
-    c_w = open(os.path.join(output_dir, 'sparse/0/cameras.txt'), 'w')
+    c_w = open(os.path.join(output_dir, 'sparse/1/cameras.txt'), 'w')
 
     print(len(image_names))
     for idx, name in enumerate(image_names):

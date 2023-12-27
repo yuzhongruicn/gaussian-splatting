@@ -127,7 +127,7 @@ class GaussianModel:
         fused_color = RGB2SH(torch.tensor(np.asarray(pcd.colors)).float().cuda())
         features = torch.zeros((fused_color.shape[0], 3, (self.max_sh_degree + 1) ** 2)).float().cuda()     #[N, 3, (max_sh_degree + 1) ** 2]
         features[:, :3, 0 ] = fused_color
-        features[:, 3:, 1:] = 0.0
+        features[:, 3:, 1:] = 0.0       #??
 
         print("Number of points at initialisation : ", fused_point_cloud.shape[0])
 
@@ -387,6 +387,7 @@ class GaussianModel:
         self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacities, new_scaling, new_rotation)
 
     def densify_and_prune(self, max_grad, min_opacity, extent, max_screen_size):
+        # extent = extent * 10
         grads = self.xyz_gradient_accum / self.denom
         grads[grads.isnan()] = 0.0
 

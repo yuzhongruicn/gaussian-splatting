@@ -37,6 +37,7 @@ class CameraInfo(NamedTuple):
     height: int
     mask: np.array
     mask_path: str
+    frame_id : int
 
 class SceneInfo(NamedTuple):
     point_cloud: BasicPointCloud
@@ -44,6 +45,7 @@ class SceneInfo(NamedTuple):
     test_cameras: list
     nerf_normalization: dict     # {"translate": translate (center), "radius": radius} training pose的中心，半径
     ply_path: str
+    embed_num: int
 
 def getNerfppNorm(cam_info):
     def get_center_and_diag(cam_centers):
@@ -109,7 +111,7 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder, load_mask=F
             assert mask.size == image.size, f'mask size {mask.size} does not match image size {image.size}'
 
         cam_info = CameraInfo(uid=uid, R=R, T=T, FovY=FovY, FovX=FovX, image=image,
-                              image_path=image_path, image_name=image_name, width=width, height=height, mask=mask, mask_path=mask_path)
+                              image_path=image_path, image_name=image_name, width=width, height=height, mask=mask, mask_path=mask_path, frame_id=-1)
         cam_infos.append(cam_info)
     sys.stdout.write('\n')
     return cam_infos
@@ -239,7 +241,8 @@ def readColmapSceneInfo(path, images, eval, llffhold=8, load_mask=False, spheric
                            train_cameras=train_cam_infos,
                            test_cameras=test_cam_infos,
                            nerf_normalization=nerf_normalization,
-                           ply_path=ply_path)
+                           ply_path=ply_path,
+                           embed_num = -1)
     return scene_info
 
 def readIDGSceneInfo(path, images, eval, block="block_0", load_mask=False, spherical_bg=False, num_bg_points=10000, bg_dist=1.0):
@@ -268,10 +271,30 @@ def readIDGSceneInfo(path, images, eval, block="block_0", load_mask=False, spher
     test_list = [element[0] for element in split_block["val"]]
 
     if eval:
-        train_cam_infos = [c for c in cam_infos if c.image_name in train_list]
-        test_cam_infos = [c for c in cam_infos if c.image_name in test_list]
+        train_cam_infos = []
+        test_cam_infos = []
+        for c in cam_infos:
+            if c.image_name in train_list:
+                idx = train_list.index(c.image_name)
+                c = c._replace(frame_id=split_block["train"]["elements"][idx][1])
+                train_cam_infos.append(c)
+            elif c.image_name in test_list:
+                idx = test_list.index(c.image_name)
+                c = c._replace(frame_id=split_block["val"][idx][1])
+                test_cam_infos.append(c)
+        # train_cam_infos = [c for c in cam_infos if c.image_name in train_list]
+        # test_cam_infos = [c for c in cam_infos if c.image_name in test_list]
     else:
-        train_cam_infos = cam_infos
+        train_cam_infos = []
+        for c in cam_infos:
+            if c.image_name in train_list:
+                idx = train_list.index(c.image_name)
+                c = c._replace(frame_id=split_block["train"]["elements"][idx][1])
+                train_cam_infos.append(c)
+            elif c.image_name in test_list:
+                idx = test_list.index(c.image_name)
+                c = c._replace(frame_id=split_block["val"][idx][1])
+                train_cam_infos.append(c)
         test_cam_infos = []
 
     print("#Training poses: ", len(train_cam_infos))
@@ -313,7 +336,8 @@ def readIDGSceneInfo(path, images, eval, block="block_0", load_mask=False, spher
                            train_cameras=train_cam_infos,
                            test_cameras=test_cam_infos,
                            nerf_normalization=nerf_normalization,
-                           ply_path=ply_path)
+                           ply_path=ply_path,
+                           embed_num = len(split_block['train']['elements']))
     return scene_info
 
 def readCamerasFromTransforms(path, transformsfile, white_background, extension=".png"):
@@ -391,7 +415,8 @@ def readNerfSyntheticInfo(path, white_background, eval, extension=".png"):
                            train_cameras=train_cam_infos,
                            test_cameras=test_cam_infos,
                            nerf_normalization=nerf_normalization,
-                           ply_path=ply_path)
+                           ply_path=ply_path,
+                           embed_num = -1)
     return scene_info
 
 sceneLoadTypeCallbacks = {

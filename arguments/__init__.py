@@ -59,12 +59,18 @@ class ModelParams(ParamGroup):
         self._white_background = False
         self.data_device = "cuda"
         self.eval = False
-        self.data_format = ['colmap', 'idg', None]     #['colmap', 'idg']
+        self.data_format = ['idg', 'colmap', None]
         self.block = "block_0"
         self.mask = False
         self.spherical_bg = False
         self.num_bg_points = 10_000
         self.bg_dist = 1.0
+        self.load2gpu_on_the_fly = False
+
+        self.add_appearance_embedding = False
+        self.embedding_dim = 32
+        self.ap_num_hidden_layers = 4
+        self.ap_num_hidden_neurons = 128
         super().__init__(parser, "Loading Parameters", sentinel)
 
     def extract(self, args):
@@ -103,14 +109,31 @@ class OptimizationParams(ParamGroup):
         self.densify_until_iter = 15_000
         self.densify_grad_threshold = 0.0002
         self.random_background = False
+
+        self.ap_lr_init = 0.0001
+        self.ap_lr_final = 0.000001
+        self.ap_lr_delay_mult = 0.01
+        self.ap_lr_max_steps = 30_000
+        self.warm_up = 4000
         super().__init__(parser, "Optimization Parameters")
 
-class WandbParams(ParamGroup):
+class LoggerParams(ParamGroup):
     def __init__(self, parser):
         self.wandb_disabled = False
         self.project_name = "3D Gaussian Splatting"
         self.run_name = ""
         super().__init__(parser, "Wandb Parameters")
+
+class ApOptParams(ParamGroup):
+    def __init__(self, parser):
+        self.iterations = 30_000
+        self.lr_init = 0.0001
+        self.lr_final = 0.000001
+        self.lr_delay_mult = 0.01
+        self.lr_max_steps = 30_000
+        self.lambda_dssim = 0.2
+        # self.lambda_img = 0.9
+        super().__init__(parser, "Optimization Parameters for appeareance net")
 
 
 def get_combined_args(parser : ArgumentParser):
