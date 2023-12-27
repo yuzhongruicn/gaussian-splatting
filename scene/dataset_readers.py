@@ -45,6 +45,7 @@ class SceneInfo(NamedTuple):
     test_cameras: list
     nerf_normalization: dict     # {"translate": translate (center), "radius": radius} training pose的中心，半径
     ply_path: str
+    embed_num: int
 
 def getNerfppNorm(cam_info):
     def get_center_and_diag(cam_centers):
@@ -240,7 +241,8 @@ def readColmapSceneInfo(path, images, eval, llffhold=8, load_mask=False, spheric
                            train_cameras=train_cam_infos,
                            test_cameras=test_cam_infos,
                            nerf_normalization=nerf_normalization,
-                           ply_path=ply_path)
+                           ply_path=ply_path,
+                           embed_num = -1)
     return scene_info
 
 def readIDGSceneInfo(path, images, eval, block="block_0", load_mask=False, spherical_bg=False, num_bg_points=10000, bg_dist=1.0):
@@ -334,7 +336,8 @@ def readIDGSceneInfo(path, images, eval, block="block_0", load_mask=False, spher
                            train_cameras=train_cam_infos,
                            test_cameras=test_cam_infos,
                            nerf_normalization=nerf_normalization,
-                           ply_path=ply_path)
+                           ply_path=ply_path,
+                           embed_num = len(split_block['train']['elements']))
     return scene_info
 
 def readCamerasFromTransforms(path, transformsfile, white_background, extension=".png"):
@@ -412,7 +415,8 @@ def readNerfSyntheticInfo(path, white_background, eval, extension=".png"):
                            train_cameras=train_cam_infos,
                            test_cameras=test_cam_infos,
                            nerf_normalization=nerf_normalization,
-                           ply_path=ply_path)
+                           ply_path=ply_path,
+                           embed_num = -1)
     return scene_info
 
 sceneLoadTypeCallbacks = {

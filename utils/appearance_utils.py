@@ -1,34 +1,6 @@
 import torch
 import torch.nn as nn
-import tinycudann as tcnn
 import torch.nn.functional as F
-
-class SHEncoding(nn.Module):
-    def __init__(self, in_dim : int = 3, levels : int = 4):
-        super(SHEncoding, self).__init__()
-        self.in_dim = in_dim
-        if levels <= 0 or levels > 4:
-            raise ValueError(f"Spherical harmonic encoding only supports 1 to 4 levels, requested {levels}")
-        self.levels = levels
-
-        encoding_config = self.get_tcnn_encoding_config(levels=self.levels)
-        self.tcnn_encoding = tcnn.Encoding(
-            n_input_dims=self.in_dim,
-            encoding_config=encoding_config
-        )
-
-    def get_tcnn_encoding_config(levels):
-        encoding_config = {
-            "otype": "SphericalHarmonics",
-            "levels": levels,
-        }
-        return encoding_config
-    
-    def get_out_dim(self):
-        return self.levels**2
-    
-    def foward(self, in_tensor):
-        return self.tcnn_encoding(in_tensor)
 
 def get_embedder(multires, i=1):
     if i == -1:

@@ -130,7 +130,7 @@ class COLMAPDatabase(sqlite3.Connection):
             (model, width, height, array_to_blob(params),camera_id))
         return cursor.lastrowid
 
-def camTodatabase(txtfile):
+def camTodatabase(database_path, txtfile):
 
 
     camModelDict = {'SIMPLE_PINHOLE': 0,
@@ -144,14 +144,14 @@ def camTodatabase(txtfile):
                     'OPENCV_FISHEYE': 8,
                     'FOV': 9,
                     'THIN_PRISM_FISHEYE': 10}
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--database_path", default="database.db")
-    args = parser.parse_args()
-    if os.path.exists(args.database_path)==False:
+    # parser = argparse.ArgumentParser()
+    # parser.add_argument("--database_path", default="database.db")
+    # args = parser.parse_args()
+    if os.path.exists(database_path)==False:
         print("ERROR: database path dosen't exist -- please check database.db.")
         return
     # Open the database.
-    db = COLMAPDatabase.connect(args.database_path)
+    db = COLMAPDatabase.connect(database_path)
 
     idList=list()
     modelList=list()
@@ -191,20 +191,18 @@ def camTodatabase(txtfile):
     # Close database.db.
     db.close()
 
-def create_image_list(txtfile):
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--database_path", default="database.db")
-    args = parser.parse_args()
-    if os.path.exists(args.database_path)==False:
+def create_image_list(database_path, img_list_txt):
+    
+    if os.path.exists(database_path)==False:
         print("ERROR: database path dosen't exist -- please check database.db.")
         return
     # Open the database.
-    db = COLMAPDatabase.connect(args.database_path)
+    db = COLMAPDatabase.connect(database_path)
     cursor = db.cursor()
 
     cursor.execute("SELECT image_id, name, camera_id from images")
     rows = cursor.fetchall()
-    with open(txtfile, 'w') as f:
+    with open(img_list_txt, 'w') as f:
         for row in rows:
             image_id, image_name, camera_id = row
             f.write(f"{image_id} {image_name} {camera_id}\n")
@@ -215,5 +213,19 @@ def create_image_list(txtfile):
 
 
 if __name__ == "__main__":
-    camTodatabase("../2011_09_26_kitti_original/sparse/0/cameras.txt")
-    create_image_list("../2011_09_26_kitti_original/image_list.txt")
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--data_path")
+    args = parser.parse_args()
+
+    data_path = args.data_path
+    database_path = os.path.join(data_path, "database.db")
+
+    camera_txt_path = os.path.join(data_path, "sparse/1/cameras.txt")
+    img_list_path = os.path.join(data_path, "image_list.txt")
+
+    print("replacing the camera intrinsics...")
+    camTodatabase(database_path, camera_txt_path)
+
+    print("creating the image_list...")
+    create_image_list(database_path, img_list_path)
