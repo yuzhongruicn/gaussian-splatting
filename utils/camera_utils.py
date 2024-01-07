@@ -51,9 +51,15 @@ def loadCam(args, id, cam_info, resolution_scale):
     if args.mask:
         assert cam_info.mask is not None, f"No mask for camera {cam_info.image_name}"
         mask = PILtoTorch(cam_info.mask, resolution)
+    
+    cx = cam_info.cx / (orig_w / resolution[0])
+    cy = cam_info.cy / (orig_h / resolution[1])
+    
+    fx = cam_info.fx / (orig_w / resolution[0])
+    fy = cam_info.fy / (orig_h / resolution[1])
 
     return Camera(colmap_id=cam_info.uid, R=cam_info.R, T=cam_info.T, 
-                  FoVx=cam_info.FovX, FoVy=cam_info.FovY, 
+                  FoVx=cam_info.FovX, FoVy=cam_info.FovY, cx=cx, cy=cy, fx=fx, fy=fy,
                   image=gt_image, gt_alpha_mask=loaded_mask,
                   image_name=cam_info.image_name, uid=id, data_device=args.data_device if not args.load2gpu_on_the_fly else 'cpu', mask=mask, frame_id=cam_info.frame_id)
 
@@ -82,7 +88,11 @@ def camera_to_JSON(id, camera : Camera):
         'height' : camera.height,
         'position': pos.tolist(),
         'rotation': serializable_array_2d,
-        'fy' : fov2focal(camera.FovY, camera.height),
-        'fx' : fov2focal(camera.FovX, camera.width)
+        # 'fy' : fov2focal(camera.FovY, camera.height),
+        # 'fx' : fov2focal(camera.FovX, camera.width),
+        'fx' : camera.fx,
+        'fy' : camera.fy,
+        'cx' : camera.cx,
+        'cy' : camera.cy
     }
     return camera_entry

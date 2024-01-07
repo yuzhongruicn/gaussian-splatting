@@ -278,7 +278,7 @@ def training_report(tb_writer, args, iteration, Ll1, loss, l1_loss, elapsed, tes
             tb_writer.add_scalar('total_points', scene.gaussians.get_xyz.shape[0], iteration)
         torch.cuda.empty_cache()
 
-def training_report_wandb(iteration, args, Ll1, loss, l1_loss, elapsed, testing_iterations, scene : Scene, renderFunc, renderArgs, gaussians : GaussianModel, appearance_model=None):
+def training_report_wandb(args,iteration, Ll1, loss, l1_loss, elapsed, testing_iterations, scene : Scene, renderFunc, renderArgs, gaussians : GaussianModel, appearance_model=None):
     # wandb.watch(appearance_model.appearance_net, log="all") 
     wandb.log({'train_loss/patches_l1_loss': Ll1.item(),
                'train_loss/patches_total_loss': loss.item(),

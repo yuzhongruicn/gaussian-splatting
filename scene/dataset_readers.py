@@ -38,6 +38,10 @@ class CameraInfo(NamedTuple):
     mask: np.array
     mask_path: str
     frame_id : int
+    cx: float
+    cy: float
+    fx: float
+    fy: float
 
 class SceneInfo(NamedTuple):
     point_cloud: BasicPointCloud
@@ -88,8 +92,8 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder, load_mask=F
         T = np.array(extr.tvec)
 
         if intr.model=="SIMPLE_PINHOLE":
-            focal_length_x = intr.params[0]
-            FovY = focal2fov(focal_length_x, height)
+            focal_length_x = focal_length_y = intr.params[0]
+            FovY = focal2fov(focal_length_y, height)
             FovX = focal2fov(focal_length_x, width)
         elif intr.model=="PINHOLE":
             focal_length_x = intr.params[0]
@@ -98,7 +102,8 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder, load_mask=F
             FovX = focal2fov(focal_length_x, width)
         else:
             assert False, "Colmap camera model not handled: only undistorted datasets (PINHOLE or SIMPLE_PINHOLE cameras) supported!"
-
+        cx, cy = intr.params[-2:]
+        
         image_path = os.path.join(images_folder, os.path.basename(extr.name))
         image_name = os.path.basename(image_path).split(".")[0]
         image = Image.open(image_path)
@@ -110,8 +115,9 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder, load_mask=F
             mask = Image.open(mask_path)
             assert mask.size == image.size, f'mask size {mask.size} does not match image size {image.size}'
 
-        cam_info = CameraInfo(uid=uid, R=R, T=T, FovY=FovY, FovX=FovX, image=image,
-                              image_path=image_path, image_name=image_name, width=width, height=height, mask=mask, mask_path=mask_path, frame_id=-1)
+        cam_info = CameraInfo(uid=uid, R=R, T=T, FovY=FovY, FovX=FovX, cx=cx, cy=cy, fx=focal_length_x, fy=focal_length_y,
+                              image=image,image_path=image_path, image_name=image_name, width=width, height=height, 
+                              mask=mask, mask_path=mask_path, frame_id=-1)
         cam_infos.append(cam_info)
     sys.stdout.write('\n')
     return cam_infos
@@ -201,8 +207,8 @@ def readColmapSceneInfo(path, images, eval, llffhold=8, load_mask=False, spheric
     cam_infos = sorted(cam_infos_unsorted.copy(), key = lambda x : x.image_name)
 
     if eval:
-        train_cam_infos = [c for idx, c in enumerate(cam_infos) if idx % llffhold != 0]
-        test_cam_infos = [c for idx, c in enumerate(cam_infos) if idx % llffhold == 0]
+        train_cam_infos = [c for idx, c in enumerate(cam_infos) if (idx+1) % llffhold != 0]
+        test_cam_infos = [c for idx, c in enumerate(cam_infos) if (idx+1) % llffhold == 0]
     else:
         train_cam_infos = cam_infos
         test_cam_infos = []

@@ -17,7 +17,7 @@ import os
 import torchvision.utils
 
 class Camera(nn.Module):
-    def __init__(self, colmap_id, R, T, FoVx, FoVy, image, gt_alpha_mask,
+    def __init__(self, colmap_id, R, T, FoVx, FoVy, cx, cy, fx, fy, image, gt_alpha_mask,
                  image_name, uid,
                  trans=np.array([0.0, 0.0, 0.0]), scale=1.0, data_device = "cuda", 
                  mask=None, frame_id=-1, width=2880, height=1860
@@ -30,6 +30,10 @@ class Camera(nn.Module):
         self.T = T
         self.FoVx = FoVx
         self.FoVy = FoVy
+        self.cx = cx
+        self.cy = cy
+        self.fx = fx
+        self.fy = fy
         self.image_name = image_name
         self.mask = None
     
@@ -49,9 +53,10 @@ class Camera(nn.Module):
             self.original_image = None
             self.image_width = width
             self.image_height = height
+            
         
         self.frame_id = torch.tensor(np.array([frame_id]), device=self.data_device)
-
+        
         if mask is not None:
             self.mask = (mask == 1).expand(*image.shape)        #[1, H, W]
             # masked_image = torch.where(mask!=True, image, 0)
@@ -73,7 +78,7 @@ class Camera(nn.Module):
         self.scale = scale
 
         self.world_view_transform = torch.tensor(getWorld2View2(R, T, trans, scale)).transpose(0, 1).to(self.data_device)
-        self.projection_matrix = getProjectionMatrix(znear=self.znear, zfar=self.zfar, fovX=self.FoVx, fovY=self.FoVy).transpose(0,1).to(self.data_device)
+        self.projection_matrix = getProjectionMatrix(znear=self.znear, zfar=self.zfar, fovX=self.FoVx, fovY=self.FoVy, cx=cx, cy=cy, W=self.image_width, H=self.image_height, fx=self.fx, fy=self.fy).transpose(0,1).to(self.data_device)
         self.full_proj_transform = (self.world_view_transform.unsqueeze(0).bmm(self.projection_matrix.unsqueeze(0))).squeeze(0)
         self.camera_center = self.world_view_transform.inverse()[3, :3]
 
