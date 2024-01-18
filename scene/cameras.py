@@ -78,12 +78,13 @@ class Camera(nn.Module):
         self.scale = scale
 
         self.world_view_transform = torch.tensor(getWorld2View2(R, T, trans, scale)).transpose(0, 1).to(self.data_device)
-        self.projection_matrix = getProjectionMatrix(znear=self.znear, zfar=self.zfar, fovX=self.FoVx, fovY=self.FoVy, cx=cx, cy=cy, W=self.image_width, H=self.image_height, fx=self.fx, fy=self.fy).transpose(0,1).to(self.data_device)
+        self.projection_matrix = getProjectionMatrix(znear=self.znear, zfar=self.zfar, fovX=self.FoVx, fovY=self.FoVy, cx=self.cx, cy=self.cy, W=self.image_width, H=self.image_height, fx=self.fx, fy=self.fy).transpose(0,1).to(self.data_device)
         self.full_proj_transform = (self.world_view_transform.unsqueeze(0).bmm(self.projection_matrix.unsqueeze(0))).squeeze(0)
         self.camera_center = self.world_view_transform.inverse()[3, :3]
 
     def load2device(self, data_device='cuda'):
-        self.original_image = self.original_image.to(data_device)
+        if self.original_image is not None:
+            self.original_image = self.original_image.to(data_device)
         self.world_view_transform = self.world_view_transform.to(data_device)
         self.projection_matrix = self.projection_matrix.to(data_device)
         self.full_proj_transform = self.full_proj_transform.to(data_device)
@@ -104,4 +105,31 @@ class MiniCam:
         self.full_proj_transform = full_proj_transform
         view_inv = torch.inverse(self.world_view_transform)
         self.camera_center = view_inv[3][:3]
+
+class PseudoCamera(nn.Module):
+    def __init__(self, R, T, FoVx, FoVy, cx, cy, fx, fy, width, height, trans=np.array([0.0, 0.0, 0.0]), scale=1.0, image_name='pseudo_image'):
+        super(PseudoCamera, self).__init__()
+
+        self.R = R
+        self.T = T
+        self.FoVx = FoVx
+        self.FoVy = FoVy
+        self.cx = cx
+        self.cy = cy
+        self.fx = fx
+        self.fy = fy
+        self.image_width = width
+        self.image_height = height
+        self.image_name = image_name
+
+        self.zfar = 1000.0
+        self.znear = 0.01
+
+        self.trans = trans
+        self.scale = scale
+
+        self.world_view_transform = torch.tensor(getWorld2View2(R, T, trans, scale)).transpose(0, 1).cuda()
+        self.projection_matrix = getProjectionMatrix(znear=self.znear, zfar=self.zfar, fovX=self.FoVx, fovY=self.FoVy, cx=self.cx, cy=self.cy, W=self.image_width, H=self.image_height, fx=self.fx, fy=self.fy).transpose(0,1).cuda()
+        self.full_proj_transform = (self.world_view_transform.unsqueeze(0).bmm(self.projection_matrix.unsqueeze(0))).squeeze(0)
+        self.camera_center = self.world_view_transform.inverse()[3, :3]
 

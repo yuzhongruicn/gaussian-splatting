@@ -19,10 +19,11 @@ from scene import Scene, GaussianModel, AppearanceModel
 from utils.general_utils import safe_state
 import uuid
 from tqdm import tqdm
-from utils.image_utils import psnr
+from utils.image_utils import psnr, vis_depth
 from utils.sh_utils import eval_sh
 from argparse import ArgumentParser, Namespace
 from arguments import ModelParams, PipelineParams, OptimizationParams, LoggerParams
+from lpipsPyTorch import lpips
 
 try:
     import wandb
@@ -36,6 +37,8 @@ except ImportError:
     TENSORBOARD_FOUND = False
 
 def training(dataset : ModelParams, opt : OptimizationParams, pipe : PipelineParams, testing_iterations, saving_iterations, logger):
+    
+    # prepare
     tb_writer = prepare_output_and_logger(dataset, opt, pipe, logger)
     gaussians = GaussianModel(dataset.sh_degree)
     scene = Scene(dataset, gaussians)
@@ -45,6 +48,16 @@ def training(dataset : ModelParams, opt : OptimizationParams, pipe : PipelinePar
     if dataset.add_appearance_embedding:
         appearance_model = AppearanceModel(shs_dim=3*(gaussians.max_sh_degree+1)**2, embed_out_dim=dataset.embedding_dim, num_views=scene.embed_num, num_hidden_layers=dataset.ap_num_hidden_layers, num_hidden_neurons=dataset.ap_num_hidden_neurons)
         appearance_model.training_setup(opt)
+        
+    # SD model
+    if pipe.enable_sd:
+        from guidance.sd import StableDiffusion
+        guidance_sd = StableDiffusion(device="cuda")
+        text_prompt = "A realistic driving scene"
+        guidance_sd.get_text_embeds(text_prompt, "")
+        
+    # exit()
+        
 
     bg_color = [1, 1, 1] if dataset.white_background else [0, 0, 0]
     background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
@@ -52,7 +65,7 @@ def training(dataset : ModelParams, opt : OptimizationParams, pipe : PipelinePar
     iter_start = torch.cuda.Event(enable_timing = True)
     iter_end = torch.cuda.Event(enable_timing = True)
 
-    viewpoint_stack = None
+    viewpoint_stack, pseudo_stack = None, None
     ema_loss_for_log = 0.0
     progress_bar = tqdm(range(opt.iterations), desc="Training progress")
     for iteration in range(1, opt.iterations + 1): 
@@ -120,19 +133,46 @@ def training(dataset : ModelParams, opt : OptimizationParams, pipe : PipelinePar
             image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
 
         # Loss
+        loss_log = {
+            "Ll1": None,
+            "Lssim": None,
+            "Lsd": None,
+            "Loss": None
+        }
         gt_image = viewpoint_cam.original_image.cuda()
         if dataset.mask:
             mask = viewpoint_cam.mask.cuda()
             masked_gt_image = torch.where(mask!=True, gt_image, 0).cuda()
             masked_image = torch.where(mask!=True, image, 0).cuda()
             Ll1 = l1_loss(masked_image, masked_gt_image)
-            loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim(masked_image, masked_gt_image))
-            loss.backward()
+            Lssim = (1.0 - ssim(masked_image, masked_gt_image))
         else:
             Ll1 = l1_loss(image, gt_image)
-            loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim(image, gt_image))
-            loss.backward()
-
+            Lssim = (1.0 - ssim(image, gt_image))
+        loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * Lssim
+        loss_log["Ll1"] = Ll1.item()
+        loss_log["Lssim"] = Lssim.item()
+        
+        # TODO: add random psudo cameras
+        if pipe.enable_sd:
+            if iteration % opt.sample_pseudo_interval == 0 and iteration > opt.start_sample_pseudo and iteration < opt.end_sample_pseudo:
+                pseudo_imgs = []
+                loss_sd = 0.0
+                for _ in range(pipe.sd_batch_size):
+                    if not pseudo_stack:
+                        pseudo_stack = scene.getPseudoCameras().copy()
+                    pseudo_cam = pseudo_stack.pop(randint(0, len(pseudo_stack) - 1))
+                    pseudo_render_pkg = render(pseudo_cam, gaussians, pipe, bg)
+                    pseudo_img = pseudo_render_pkg["render"].unsqueeze(0)   # [1, 3, H, W]
+                    pseudo_imgs.append(pseudo_img)
+                
+                pseudo_imgs = torch.cat(pseudo_imgs, dim=0)
+                loss_sd += guidance_sd.train_step(pseudo_imgs)
+                loss += opt.lambda_dsd * loss_sd
+                loss_log["Lsd"] = loss_sd.item()
+                    
+        loss.backward()
+        loss_log["Loss"] = loss.item()
         iter_end.record()
 
         if dataset.load2gpu_on_the_fly:
@@ -149,7 +189,7 @@ def training(dataset : ModelParams, opt : OptimizationParams, pipe : PipelinePar
 
             # Log and save
             if logger == "wandb" and WANDB_FOUND:
-                training_report_wandb(dataset, iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end), testing_iterations, scene, render, (pipe, background), gaussians, appearance_model)
+                training_report_wandb(dataset, iteration, loss_log, l1_loss, iter_start.elapsed_time(iter_end), testing_iterations, scene, render, (pipe, background), gaussians, appearance_model)
             else:
                 training_report(tb_writer, dataset, iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end), testing_iterations, scene, render, (pipe, background), gaussians, appearance_model)
       
@@ -278,12 +318,17 @@ def training_report(tb_writer, args, iteration, Ll1, loss, l1_loss, elapsed, tes
             tb_writer.add_scalar('total_points', scene.gaussians.get_xyz.shape[0], iteration)
         torch.cuda.empty_cache()
 
-def training_report_wandb(args,iteration, Ll1, loss, l1_loss, elapsed, testing_iterations, scene : Scene, renderFunc, renderArgs, gaussians : GaussianModel, appearance_model=None):
+def training_report_wandb(args,iteration, loss_log, l1_loss, elapsed, testing_iterations, scene : Scene, renderFunc, renderArgs, gaussians : GaussianModel, appearance_model=None):
     # wandb.watch(appearance_model.appearance_net, log="all") 
-    wandb.log({'train_loss/patches_l1_loss': Ll1.item(),
-               'train_loss/patches_total_loss': loss.item(),
+    wandb.log({'train_loss/patches_l1_loss': loss_log["Ll1"],
+               'train_loss/patches_total_loss': loss_log["Loss"],
+               'train_loss/patches_ssim': loss_log["Lssim"],
                'iter_time': elapsed},
                step = iteration)
+    if loss_log["Lsd"] is not None:
+        wandb.log({'train_loss/sds_loss': loss_log["Lsd"]},
+                  step = iteration)
+        
     for param_group in gaussians.optimizer.param_groups:
         if param_group["name"] == "xyz":
             lr = param_group['lr']
@@ -305,56 +350,82 @@ def training_report_wandb(args,iteration, Ll1, loss, l1_loss, elapsed, testing_i
         shs = shs.view(N, -1)
 
         validation_configs = ({'name': 'test', 'cameras' : scene.getTestCameras()}, 
-                              {'name': 'train', 'cameras' : [scene.getTrainCameras()[idx % len(scene.getTrainCameras())] for idx in range(5, 30, 5)]})
+                              {'name': 'train', 'cameras' : [scene.getTrainCameras()[idx % len(scene.getTrainCameras())] for idx in range(5, 30, 5)]},
+                              {'name': 'pseudo', 'cameras' : scene.getPseudoCameras()})
         for config in validation_configs:
             if config['cameras'] and len(config['cameras']) > 0:
-                l1_test = 0.0
-                psnr_test = 0.0
-                if config['name'] == "test":
-                    num_log = len(config['cameras'])        # log all test images
-                else:
-                    num_log = 5
-                for idx, viewpoint in enumerate(config['cameras']):
+                l1_test, psnr_test, ssim_test, lpips_test = 0.0, 0.0, 0.0, 0.0
+                
+                if config['name'] == "pseudo":
+                    for idx, viewpoint in enumerate(config['cameras']):
+                        render_pkg = renderFunc(viewpoint, scene.gaussians, *renderArgs)
+                        image = render_pkg["render"]
+                        image = torch.clamp(image, 0.0, 1.0)
 
-                    if args.load2gpu_on_the_fly:
-                        viewpoint.load2device()
-                    if args.add_appearance_embedding:
-                        frame_id = viewpoint.frame_id
-                        frame_id = frame_id.unsqueeze(0).expand(N, 1)
-                        # d_shs = appearance_model.step(shs.detach(), frame_id)
-                        d_shs = appearance_model.step(shs.detach(), xyz.detach(), frame_id)
-                        d_shs = d_shs.view(-1, (gaussians.max_sh_degree+1)**2, 3)
-                        image =renderFunc(viewpoint, scene.gaussians, *renderArgs, model_appearance=True, d_shs=d_shs)["render"]
-                        
-                    else:
-                        image =renderFunc(viewpoint, scene.gaussians, *renderArgs)["render"]
-
-                    gt_image = viewpoint.original_image.to("cuda")
-
-
-                    if idx < num_log:
+                        depth = render_pkg["depth"]
+                        depth_map = vis_depth(depth[0].detach().cpu().numpy())
                         wandb.log({config['name'] + "_view/{}/render".format(viewpoint.image_name): wandb.Image(image[None], caption="Render")}, step=iteration)
-                        image_grid = torch.cat((image, gt_image), dim=-1)
-                        wandb.log({config['name'] + "_view/{}/combined".format(viewpoint.image_name): wandb.Image(image_grid[None], caption="Left:Render, Right:GT")}, step=iteration)
-                        if iteration == testing_iterations[0]:
-                            wandb.log({config['name'] + "_view/{}/GT".format(viewpoint.image_name): wandb.Image(gt_image[None], caption="Ground Truth")}, step=iteration)
-                    if args.mask: 
-                        mask = viewpoint.mask.cuda()
-                        masked_gt_image = torch.where(mask!=True, gt_image, 0).cuda()
-                        masked_image = torch.where(mask!=True, image, 0).cuda()
-                        l1_test += l1_loss(masked_image, masked_gt_image).mean().double()
-                        psnr_test += psnr(masked_image, masked_gt_image).mean().double()
+                        wandb.log({config['name'] + "_view/{}/depth".format(viewpoint.image_name): wandb.Image(depth_map, caption="Depth")}, step=iteration)
+                        
+                else:
+                    if config['name'] == "test":
+                        num_log = len(config['cameras'])        # log all test images
                     else:
-                        l1_test += l1_loss(image, gt_image).mean().double()
-                        psnr_test += psnr(image, gt_image).mean().double()
-                psnr_test /= len(config['cameras'])
-                l1_test /= len(config['cameras'])          
-                print("\n[ITER {}] Evaluating {}: L1 {} PSNR {}".format(iteration, config['name'], l1_test, psnr_test))
-                if args.load2gpu_on_the_fly:
-                        viewpoint.load2device('cpu')
-                wandb.log({config['name'] + '_loss/viewpoint_l1_loss': l1_test,
-                           config['name'] + '_loss/viewpoint_psnr': psnr_test}, 
-                           step = iteration)
+                        num_log = 5
+                    for idx, viewpoint in enumerate(config['cameras']):
+
+                        if args.load2gpu_on_the_fly:
+                            viewpoint.load2device()
+                        if args.add_appearance_embedding:
+                            frame_id = viewpoint.frame_id
+                            frame_id = frame_id.unsqueeze(0).expand(N, 1)
+                            # d_shs = appearance_model.step(shs.detach(), frame_id)
+                            d_shs = appearance_model.step(shs.detach(), xyz.detach(), frame_id)
+                            d_shs = d_shs.view(-1, (gaussians.max_sh_degree+1)**2, 3)
+                            render_pkg = renderFunc(viewpoint, scene.gaussians, *renderArgs, model_appearance=True, d_shs=d_shs)                       
+                        else:
+                            render_pkg = renderFunc(viewpoint, scene.gaussians, *renderArgs)
+                            
+                        image = render_pkg["render"]
+                        gt_image = viewpoint.original_image.to("cuda")
+                        image = torch.clamp(image, 0.0, 1.0)
+                        gt_image = torch.clamp(gt_image, 0.0, 1.0)
+                        
+                        depth = render_pkg["depth"]
+                        depth_map = vis_depth(depth[0].detach().cpu().numpy())
+
+                        if idx < num_log:
+                            wandb.log({config['name'] + "_view/{}/render".format(viewpoint.image_name): wandb.Image(image[None], caption="Render")}, step=iteration)
+                            image_grid = torch.cat((image, gt_image), dim=-1)
+                            wandb.log({config['name'] + "_view/{}/combined".format(viewpoint.image_name): wandb.Image(image_grid[None], caption="Left:Render, Right:GT")}, step=iteration)
+                            if iteration == testing_iterations[0]:
+                                wandb.log({config['name'] + "_view/{}/GT".format(viewpoint.image_name): wandb.Image(gt_image[None], caption="Ground Truth")}, step=iteration)
+                            wandb.log({config['name'] + "_view/{}/depth".format(viewpoint.image_name): wandb.Image(depth_map, caption="Depth")}, step=iteration)
+                        if args.mask: 
+                            mask = viewpoint.mask.cuda()
+                            masked_gt_image = torch.where(mask!=True, gt_image, 0).cuda()
+                            masked_image = torch.where(mask!=True, image, 0).cuda()
+                            l1_test += l1_loss(masked_image, masked_gt_image).mean().double()
+                            psnr_test += psnr(masked_image, masked_gt_image).mean().double()
+                            ssim_test += ssim(masked_image, masked_gt_image).mean().double()
+                            lpips_test += lpips(masked_image, masked_gt_image, net_type='vgg').mean().double()
+                        else:
+                            l1_test += l1_loss(image, gt_image).mean().double()
+                            psnr_test += psnr(image, gt_image).mean().double()
+                            ssim_test += ssim(image, gt_image).mean().double()
+                            lpips_test += lpips(image, gt_image, net_type='vgg').mean().double()
+                    psnr_test /= len(config['cameras'])
+                    l1_test /= len(config['cameras'])
+                    ssim_test /= len(config['cameras'])
+                    lpips_test /= len(config['cameras'])          
+                    print("\n[ITER {}] Evaluating {}: L1 {} PSNR {} SSIM {} LPIPS {}".format(iteration, config['name'], l1_test, psnr_test, ssim_test, lpips_test))
+                    if args.load2gpu_on_the_fly:
+                            viewpoint.load2device('cpu')
+                    wandb.log({config['name'] + '_loss/viewpoint_l1_loss': l1_test,
+                            config['name'] + '_loss/viewpoint_psnr': psnr_test,
+                            config['name'] + '_loss/viewpoint_ssim': ssim_test,
+                            config['name'] + '_loss/viewpoint_lpips': lpips_test}, 
+                            step = iteration)
 
         wandb.log({"scene/opacity_histogram": wandb.Histogram(scene.gaussians.get_opacity.cpu()),
                    "scene/total_points": scene.gaussians.get_xyz.shape[0]}, 
@@ -376,6 +447,7 @@ if __name__ == "__main__":
     parser.add_argument("--save_iterations", nargs="+", type=int, default=[7_000, 30_000])
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--logger", type=str, default = None, choices=[None, "wandb", "tensorboard"])
+    parser.add_argument("--online", action="store_true")
     args = parser.parse_args(sys.argv[1:])
     args.save_iterations.append(args.iterations)
     
@@ -390,6 +462,8 @@ if __name__ == "__main__":
         wdb = wdb.extract(args)
         if wdb.wandb_disabled:
             mode = "disabled"
+        elif args.online:
+            mode = "online"
         else:
             mode = "offline"        # set offline on pdc and sync in docker
         if wdb.run_name == None:

@@ -88,3 +88,47 @@ def fov2focal(fov, pixels):
 
 def focal2fov(focal, pixels):
     return 2*math.atan(pixels/(2*focal))
+
+# 弧度
+def rotationMatrixToEulerAngles(R):
+    if type(R) != 'numpy':
+        R = np.array(R)
+    sy = math.sqrt(R[0,0] * R[0,0] +  R[1,0] * R[1,0])
+    singular = sy < 1e-6
+    if  not singular :
+        x = math.atan2(R[2,1] , R[2,2])
+        y = math.atan2(-R[2,0], sy)
+        z = math.atan2(R[1,0], R[0,0])
+    else :
+        x = math.atan2(-R[1,2], R[1,1])
+        y = math.atan2(-R[2,0], sy)
+        z = 0
+    return np.array([y, x, z])
+
+# 角度转弧度
+def angle2radian(theta):
+    return [i * math.pi / 180.0 for i in theta]
+
+# 弧度转角度
+def radian2angle(theta):
+    return [i * 180.0/ math.pi for i in theta]
+
+# 欧拉角（默认为弧度）转旋转矩阵
+def eulerAngles2rotationMat(theta, format='radian'):
+    if format =='angle':
+        theta = angle2radian(theta)
+    theta[0], theta[1] = theta[1], theta[0]    
+    R_x = np.array([[1, 0, 0],
+                    [0, math.cos(theta[0]), -math.sin(theta[0])],
+                    [0, math.sin(theta[0]), math.cos(theta[0])]
+                    ])
+    R_y = np.array([[math.cos(theta[1]), 0, math.sin(theta[1])],
+                    [0, 1, 0],
+                    [-math.sin(theta[1]), 0, math.cos(theta[1])]
+                    ])
+    R_z = np.array([[math.cos(theta[2]), -math.sin(theta[2]), 0],
+                    [math.sin(theta[2]), math.cos(theta[2]), 0],
+                    [0, 0, 1]
+                    ])
+    R = np.dot(R_z, np.dot(R_y, R_x))
+    return R

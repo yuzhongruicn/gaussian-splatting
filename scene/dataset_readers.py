@@ -50,6 +50,7 @@ class SceneInfo(NamedTuple):
     nerf_normalization: dict     # {"translate": translate (center), "radius": radius} training pose的中心，半径
     ply_path: str
     embed_num: int
+    scene_extent: dict           # {"center", "radius"}
 
 def getNerfppNorm(cam_info):
     def get_center_and_diag(cam_centers):
@@ -74,6 +75,14 @@ def getNerfppNorm(cam_info):
 
     return {"translate": translate, "radius": radius}
 
+def getSceneExtent(pcd):
+    
+    xyzs = np.asarray(pcd.points)
+    center = np.mean(xyzs, axis=0)
+    distances = np.linalg.norm(xyzs - center, axis=1)
+    radius = np.max(distances)
+    return {"center": center, "radius": radius}
+    
 def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder, load_mask=False):
     cam_infos = []
     for idx, key in enumerate(cam_extrinsics):
@@ -92,17 +101,21 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder, load_mask=F
         T = np.array(extr.tvec)
 
         if intr.model=="SIMPLE_PINHOLE":
+            cx = intr.params[1]
+            cy = intr.params[2]
             focal_length_x = focal_length_y = intr.params[0]
             FovY = focal2fov(focal_length_y, height)
             FovX = focal2fov(focal_length_x, width)
         elif intr.model=="PINHOLE":
+            cx = intr.params[2]
+            cy = intr.params[3]
             focal_length_x = intr.params[0]
             focal_length_y = intr.params[1]
             FovY = focal2fov(focal_length_y, height)
             FovX = focal2fov(focal_length_x, width)
         else:
             assert False, "Colmap camera model not handled: only undistorted datasets (PINHOLE or SIMPLE_PINHOLE cameras) supported!"
-        cx, cy = intr.params[-2:]
+        # cx, cy = intr.params[-2:]
         
         image_path = os.path.join(images_folder, os.path.basename(extr.name))
         image_name = os.path.basename(image_path).split(".")[0]
@@ -242,13 +255,16 @@ def readColmapSceneInfo(path, images, eval, llffhold=8, load_mask=False, spheric
         storePly(bg_path, bg_xyz, bg_rgb)
         storePly(ply_path, xyz_all, rgb_all)
         pcd = fetchPly(ply_path)  
+        
+    scene_extent = getSceneExtent(pcd)
 
     scene_info = SceneInfo(point_cloud=pcd,
                            train_cameras=train_cam_infos,
                            test_cameras=test_cam_infos,
                            nerf_normalization=nerf_normalization,
                            ply_path=ply_path,
-                           embed_num = -1)
+                           embed_num = -1,
+                           scene_extent=scene_extent)
     return scene_info
 
 def readIDGSceneInfo(path, images, eval, block="block_0", load_mask=False, spherical_bg=False, num_bg_points=10000, bg_dist=1.0):

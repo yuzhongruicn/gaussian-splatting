@@ -27,7 +27,9 @@ def readImages(renders_dir, gt_dir):
     renders = []
     gts = []
     image_names = []
-    for fname in os.listdir(renders_dir):
+    fnames = os.listdir(renders_dir)
+    fnames.sort()
+    for fname in fnames:
         if fname.endswith(('.png', '.jpg')):
             render = Image.open(renders_dir / fname)
             gt = Image.open(gt_dir / fname)

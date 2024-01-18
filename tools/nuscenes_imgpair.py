@@ -1,7 +1,6 @@
 '''
-from S-NeRF
+partially from S-NeRF
 '''
-from imageio import save
 import numpy as np
 import os
 import cv2
@@ -12,11 +11,14 @@ from scipy.spatial.transform import Rotation as R
 from pyquaternion import Quaternion
 from collections import defaultdict
 import argparse
-from utils.nuscenes_utils import transform_points, mask_outside_points, accumulate_points, points2im
+from utils.nuscenes_utils import mask_outside_points
 from nuscenes.nuscenes import NuScenes
 from nuscenes.utils.geometry_utils import view_points, transform_matrix
 from nuscenes.utils.data_classes import LidarPointCloud
+from nuscenes.utils.splits import create_splits_scenes
+
 from copy import deepcopy
+import random
 
 import open3d as o3d
 
@@ -70,7 +72,7 @@ def get_lidar_params(nusc, lidar_data):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--version', type=str, default='v1.0-mini', choices=['v1.0-mini', 'v1,0-trainval'])
+    parser.add_argument('--version', type=str, default='v1.0-mini', choices=['v1.0-mini', 'v1.0-trainval'])
     parser.add_argument('--datadir', type=str, default = './data' )
     parser.add_argument('--skip', type=int, default=20, help = 'Skip the first N frames') # Caution, this may vary from scene to scene
     parser.add_argument('--total_num', type=int, default = 40, help = 'The frames needed')
@@ -81,15 +83,48 @@ if __name__ == '__main__':
     parser.add_argument('--height', type=int, default=900)
     args = parser.parse_args()
 
-    
-
     # Data Initialization
     dataroot = os.path.join(args.datadir, 'nuScenes', args.version.split('-')[-1])
     nusc = NuScenes(version=args.version, dataroot=dataroot, verbose=True)
-    
-    cameras = [CAMERAS[i] for i in args.camera_index]
     scene_dict_path = os.path.join(dataroot, 'scene_dict.json')
+    # val_scene_dict_path = os.path.join(dataroot, 'scene_dict_val.json')
 
+    save_dir = args.savedir
+
+    prompt_json_path = os.path.join(save_dir, 'prompt.json')
+    promt_json_list = []
+    cameras = [CAMERAS[i] for i in args.camera_index]
+
+    # splits = create_splits_scenes()
+    # # train_split = 'train'
+    # print(len(splits['train']))
+    # print(len(splits['val']))
+    # train_scene_dict = {}
+    # val_scene_dict = {}
+    # for scene in nusc.scene:
+    #     if scene['name'] in splits['train']:
+    #         train_scene_dict[scene['name']] = scene['token']
+    #     elif scene['name'] in splits['val']:
+    #         val_scene_dict[scene['name']] = scene['token']
+
+    # with open(scene_dict_path, 'w') as f:
+    #     json.dump(train_scene_dict, f)
+    # with open(val_scene_dict_path, 'w') as f:
+    #     json.dump(val_scene_dict, f)
+    # exit()
+
+    img_savepath = os.path.join(save_dir, 'images')
+    # proj_savepath = os.path.join(save_dir, 'projcted')
+    # sparse_savepath = os.path.join(proj_savepath, 'sparse')
+    dense_savepath = os.path.join(save_dir, 'dense')
+    pcd_savepath = os.path.join(save_dir, 'pcd')
+    os.makedirs(os.path.join(img_savepath, 'train'), exist_ok=True)
+    os.makedirs(os.path.join(img_savepath, 'test'), exist_ok=True)
+    os.makedirs(os.path.join(dense_savepath, 'train'), exist_ok=True)
+    os.makedirs(os.path.join(dense_savepath, 'test'), exist_ok=True)
+    os.makedirs(dense_savepath, exist_ok=True)
+    os.makedirs(pcd_savepath, exist_ok=True)
+    
     with open(scene_dict_path, 'r') as f:
         scene_dict = json.load(f)
     
@@ -99,25 +134,11 @@ if __name__ == '__main__':
         scene = nusc.get('scene', scene_token)
         assert(scene['name'] == scene_name), "Scene name not match"
 
-        save_dir = os.path.join(args.savedir, scene_name)
-        img_savepath = os.path.join(save_dir, 'images')
-        proj_savepath = os.path.join(save_dir, 'projcted')
-        sparse_savepath = os.path.join(proj_savepath, 'sparse')
-        dense_savepath = os.path.join(proj_savepath, 'dense')
-        os.makedirs(img_savepath, exist_ok=True)
-        os.makedirs(proj_savepath, exist_ok=True)
-        os.makedirs(sparse_savepath, exist_ok=True)
-        os.makedirs(dense_savepath, exist_ok=True)
-        
-        # sample_token = scene['first_sample_token']
-        temp_sample = nusc.get('sample', scene['first_sample_token'])
+        # save_dir = os.path.join(args.savedir, scene_name)
 
-        for i in range(args.skip):
-            temp_sample = nusc.get('sample', temp_sample['next'])
-        sample_token = temp_sample['token']
+        sample_token = scene['first_sample_token']
             
         IDX = 0
-        sample_idx_list = {}
         channel_tokens = defaultdict(list)
 
         all_points = np.empty((0, 4))
@@ -125,11 +146,11 @@ if __name__ == '__main__':
 
         #get all lidar points
         while sample_token:
-            # IDX += 1
+            
             sample = nusc.get('sample', sample_token)
             lidar_token = sample['data']['LIDAR_TOP']
             lidar_data = nusc.get('sample_data', lidar_token)
-            pointcloud = LidarPointCloud.from_file(nusc.get_sample_data_path(lidar_token))
+            pointcloud, _ = LidarPointCloud.from_file_multisweep(nusc, sample, chan='LIDAR_TOP', ref_chan='LIDAR_TOP', nsweeps=5)
 
             # lidar to vehicle
             lidar2global = get_lidar_params(nusc, lidar_data)
@@ -175,29 +196,48 @@ if __name__ == '__main__':
                     point_camera_dist[valid_mask] = point_cam_dist_frame
                     valid_mask_all = np.logical_or(valid_mask_all, valid_mask)
 
+            IDX += 1
+
             all_points = np.vstack((all_points, pointcloud.points.T[valid_mask_all]))
             all_colors = np.vstack((all_colors, colors[valid_mask_all]))
             sample_token = sample['next']
         
+        print(f"Finish processing lidar pcd of scene {scene_name}, total {IDX} frames")
         pointcloud_all = LidarPointCloud(all_points.T)
         pcd = o3d.geometry.PointCloud()
         pcd.points = o3d.utility.Vector3dVector(all_points[:, :3])  # xyz
         pcd.colors = o3d.utility.Vector3dVector(all_colors)
-        o3d.io.write_point_cloud(os.path.join(save_dir, f"{scene_name}_all_points.ply"), pcd)
+        o3d.io.write_point_cloud(os.path.join(pcd_savepath, f"{scene_name}_all_points.ply"), pcd)
         
     # exit()
 
 
+        first_sample = nusc.get('sample', scene['first_sample_token'])
+        for i in range(args.skip):
+            first_sample = nusc.get('sample', first_sample['next'])
+        
+        last_sample = nusc.get('sample', scene['last_sample_token'])
+        for i in range(args.skip):
+            last_sample = nusc.get('sample', last_sample['prev'])
+        last_sample_token = last_sample['token']
+
+
+        IDX = 0
+        NUMS = 0
+        
         # #project all pcd to images
-        sample_token = temp_sample['token']
-        while sample_token:
+        sample_token = first_sample['token']
+
+        while sample_token and sample_token != last_sample_token:
             sample = nusc.get('sample', sample_token)
             for cam in sample['data']:
                 if cam in cameras:
+                    NUMS += 1
+                    promt_dict = {}
                     cam_data = nusc.get('sample_data', sample['data'][cam])
                     cam_img_path = nusc.get_sample_data_path(cam_data['token'])
                     img = cv2.imread(cam_img_path)
-                    cv2.imwrite(os.path.join(img_savepath, f'{cam}_{IDX:04d}.png'), img)
+                    
                     proj_img = np.zeros_like(img)
                     z_img = np.ones((img.shape[0], img.shape[1])) * np.inf
 
@@ -209,20 +249,37 @@ if __name__ == '__main__':
                     depths = pointcloud_cam.points[2, :]
                     points = view_points(pointcloud_cam.points[:3, :], cam_intrinsic, normalize=True)
                     points_frame, depths_frame, valid_mask = mask_outside_points(points, depths, height=900)
-
+                    
+                    # colors_frame = all_colors[valid_mask]
+                    
                     for i, point in enumerate(points_frame.T):
                         x, y = int(point[0]), int(point[1])
                         z = depths_frame[i]
                         if z_img[y, x] > z:
                             proj_img[y, x, :] = img[y, x, :]
+                            z_img[y, x] = z
                     
-                    cv2.imwrite(os.path.join(dense_savepath, f'{cam}_{IDX:04d}_dense.png'), proj_img)
+                    if (NUMS+1) % 100 == 0:
+                        cv2.imwrite(os.path.join(img_savepath, 'test', f'{scene_name}_{cam}_{IDX:04d}.png'), img)
+                        cv2.imwrite(os.path.join(dense_savepath, 'test', f'{scene_name}_{cam}_{IDX:04d}.png'), proj_img)
+                    else:
+                        promt_dict["source"] = os.path.join(dense_savepath, 'train', f'{scene_name}_{cam}_{IDX:04d}.png')
+                        promt_dict["target"] = os.path.join(img_savepath, 'train', f'{scene_name}_{cam}_{IDX:04d}.png')
+                        promt_dict["prompt"] = "realistic streetview"
+                        promt_json_list.append(promt_dict)
+                        cv2.imwrite(os.path.join(img_savepath, 'train', f'{scene_name}_{cam}_{IDX:04d}.png'), img)
+                        cv2.imwrite(os.path.join(dense_savepath, 'train', f'{scene_name}_{cam}_{IDX:04d}.png'), proj_img)
             IDX += 1
             sample_token = sample['next']
-                            
+            
+        print(f"Finish processing images in scene {scene_name}, total {IDX} frames, {NUMS} images")
 
+    # random.shuffle(promt_json_list)
+    with open(prompt_json_path, 'w') as f:
+        for entry in promt_json_list:
+            f.write(json.dumps(entry) + '\n')
 
-
+    
 
 
 

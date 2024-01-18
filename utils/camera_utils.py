@@ -9,10 +9,13 @@
 # For inquiries contact  george.drettakis@inria.fr
 #
 
-from scene.cameras import Camera
+from scene.cameras import Camera, PseudoCamera
 import numpy as np
 from utils.general_utils import PILtoTorch
 from utils.graphics_utils import fov2focal
+import math
+from utils.graphics_utils import rotationMatrixToEulerAngles, radian2angle, angle2radian, eulerAngles2rotationMat
+from utils.graphics_utils import focal2fov, fov2focal
 
 WARNED = False
 
@@ -96,3 +99,53 @@ def camera_to_JSON(id, camera : Camera):
         'cy' : camera.cy
     }
     return camera_entry
+
+def generate_random_cams_kitti360(cameras, num_frames=1000):
+    train_cam = cameras[0]
+    fx, fy = train_cam.fx, train_cam.fy
+    
+    #TODO not hard code
+    height = train_cam.image_height
+    width = 600
+    cx = width / 2
+    cy = height / 2
+    FoVx = focal2fov(fx, width)
+    FoVy = focal2fov(fy, height)
+
+    np.random.seed(42)
+    delta_angle = np.random.randint(-60, 60, num_frames)
+    
+    # poses = []
+    pseudo_cams = []
+    #TODO: generate random poses
+    for idx, camera in enumerate(cameras[:-1]):
+        img_name = camera.image_name
+        w2c = np.eye(4)
+        w2c[:3, :3] = camera.R.transpose()
+        w2c[:3, 3] = camera.T
+        c2w = np.linalg.inv(w2c)
+        
+        # w2c_next = np.eye(4)
+        # camera_next = cameras[idx+1]
+        # w2c_next[:3, :3] = camera_next.R.T
+        # w2c_next[:3, 3] = camera_next.T
+        # c2w_next = np.linalg.inv(w2c_next)
+        
+        c2w_new = np.eye(4)
+        # c2w_new[:3, 3] = 0.5 * (c2w_next[:3, 3] + c2w[:3, 3])
+        c2w_new[:3, 3] = c2w[:3, 3]
+        euler = rotationMatrixToEulerAngles(c2w[:3, :3])
+        angle = radian2angle(euler)
+        
+        #（-60 - 60）
+        angle[2] += delta_angle[idx]
+        rot = eulerAngles2rotationMat(angle2radian(angle))
+        
+        c2w_new[:3, :3] = rot
+        w2c_new = np.linalg.inv(c2w_new)
+        # poses.append(w2c_new)
+        pseudo_cams.append(PseudoCamera(R=w2c_new[:3, :3].T, T=w2c_new[:3, 3], FoVx=FoVx, FoVy=FoVy,
+                                        cx=cx, cy=cy, fx=fx, fy=fy,
+                                        width=width, height=height, image_name=f"{img_name}_{delta_angle[idx]}"))
+        
+    return pseudo_cams

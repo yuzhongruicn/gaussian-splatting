@@ -18,19 +18,29 @@ from scene.dataset_readers import sceneLoadTypeCallbacks
 from scene.gaussian_model import GaussianModel
 from scene.appearance_model import AppearanceModel
 from arguments import ModelParams
-from utils.camera_utils import cameraList_from_camInfos, camera_to_JSON
+from utils.camera_utils import cameraList_from_camInfos, camera_to_JSON, generate_random_cams_kitti360
+from utils.poses_utils import generate_random_poses_kitti360
+from scene.cameras import PseudoCamera
 
 class Scene:
 
     gaussians : GaussianModel
 
-    def __init__(self, args : ModelParams, gaussians : GaussianModel, load_iteration=None, shuffle=True, resolution_scales=[1.0]):
+    def __init__(self, args : ModelParams, gaussians : GaussianModel, load_iteration=None, shuffle=True, resolution_scales=[1.0], scene_type=None):
         """b
         :param path: Path to colmap scene main folder.
         """
         self.model_path = args.model_path
         self.loaded_iter = None
         self.gaussians = gaussians
+        if scene_type is None:
+            if args.source_path.find("kitti360"):
+                self.scene_type = "kitti360"
+            else:
+                #TODO: Add more scene types
+                self.scene_type = None
+        else:
+            self.scene_type = scene_type
 
         if load_iteration:
             if load_iteration == -1:
@@ -41,6 +51,7 @@ class Scene:
 
         self.train_cameras = {}
         self.test_cameras = {}
+        self.pseudo_cameras = {}
         
         if args.data_format == "idg":
             scene_info = sceneLoadTypeCallbacks["IDG"](args.source_path, args.images, args.eval, 
@@ -78,6 +89,7 @@ class Scene:
             random.shuffle(scene_info.test_cameras)  # Multi-res consistent random shuffling
 
         self.cameras_extent = scene_info.nerf_normalization["radius"]
+        # self.cameras_extent = scene_info.scene_extent["radius"]
         print('camera_extent: ', self.cameras_extent)
 
         for resolution_scale in resolution_scales:
@@ -85,7 +97,20 @@ class Scene:
             self.train_cameras[resolution_scale] = cameraList_from_camInfos(scene_info.train_cameras, resolution_scale, args)
             print("Loading Test Cameras")
             self.test_cameras[resolution_scale] = cameraList_from_camInfos(scene_info.test_cameras, resolution_scale, args)
-
+            
+            view = self.train_cameras[resolution_scale][0]
+            print("Creating Pseudo Cameras")
+            # pseudo_cams = []
+            if self.scene_type == "kitti360":
+                # pseudo_poses = generate_random_poses_kitti360(self.train_cameras[resolution_scale])
+                # for pose_id, pose in enumerate(pseudo_poses):
+                #     pseudo_cams.append(PseudoCamera(R=pose[:3, :3].T, T=pose[:3, 3], FoVx=view.FoVx, FoVy=view.FoVy,
+                #                                     cx=view.cx, cy=view.cy, fx=view.fx, fy=view.fy,
+                #                                     width=view.image_width, height=view.image_height, image_name=f"{pose_id:05d}"))
+                pseudo_cams = generate_random_cams_kitti360(self.train_cameras[resolution_scale])
+                
+            self.pseudo_cameras[resolution_scale] = pseudo_cams
+                
         if self.loaded_iter:
             self.gaussians.load_ply(os.path.join(self.model_path,
                                                            "point_cloud",
@@ -105,6 +130,9 @@ class Scene:
 
     def getTestCameras(self, scale=1.0):
         return self.test_cameras[scale]
+    
+    def getPseudoCameras(self, scale=1.0):
+        return self.pseudo_cameras[scale]
     
     def getRenderCameras(self, scale=1.0, render_path=None):
         train_camera = self.train_cameras[scale][0]

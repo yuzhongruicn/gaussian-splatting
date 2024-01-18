@@ -88,6 +88,9 @@ class PipelineParams(ParamGroup):
         self.convert_SHs_python = False
         self.compute_cov3D_python = False
         self.debug = False
+        self.enable_sd = False
+        self.depth_loss = False
+        self.sd_batch_size = 1
         super().__init__(parser, "Pipeline Parameters")
 
 class OptimizationParams(ParamGroup):
@@ -115,6 +118,12 @@ class OptimizationParams(ParamGroup):
         self.ap_lr_delay_mult = 0.01
         self.ap_lr_max_steps = 30_000
         self.warm_up = 4000
+        
+        self.sample_pseudo_interval = 1000
+        self.start_sample_pseudo = 5000
+        self.end_sample_pseudo = 20_000
+        self.lambda_dsd = 0.1
+        
         super().__init__(parser, "Optimization Parameters")
 
 class LoggerParams(ParamGroup):

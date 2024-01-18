@@ -3,10 +3,49 @@ import os.path as osp
 import cv2
 from pyquaternion import Quaternion
 from nuscenes.utils.data_classes import LidarPointCloud
+from nuscenes.utils.geometry_utils import transform_matrix
 from PIL import Image
 
 MAX_WIDTH= 1600
 MAX_HEIGHT = 900
+
+def get_camera_params(nusc, cam_data):
+    # intrinsic
+    cam_cs_rec = nusc.get('calibrated_sensor', cam_data['calibrated_sensor_token'])
+    cam_intrinsic = np.array(cam_cs_rec['camera_intrinsic'])
+
+    # vehicle to cam
+    cam2vehicle_rotation = cam_cs_rec['rotation']
+    cam2vehicle_translation = cam_cs_rec['translation']
+    cam2vehicle = transform_matrix(cam2vehicle_translation, Quaternion(cam2vehicle_rotation))
+
+    # vehicle to global at camera timestep
+    pose_record = nusc.get('ego_pose', cam_data['ego_pose_token'])
+    vehicle2global_rotation = pose_record['rotation']
+    vehicle2global_translation = pose_record['translation']
+    vehicle2global = transform_matrix(vehicle2global_translation, Quaternion(vehicle2global_rotation))
+
+    cam2global = vehicle2global @ cam2vehicle
+
+    return cam_intrinsic, cam2global
+    
+def get_lidar_params(nusc, lidar_data):
+
+    cs_record = nusc.get('calibrated_sensor', lidar_data['calibrated_sensor_token'])
+    lidar2vehicle_rotation = cs_record['rotation']
+    lidar2vehicle_translation = cs_record['translation']
+    lidar2vehicle = transform_matrix(lidar2vehicle_translation, Quaternion(lidar2vehicle_rotation))
+    
+    # vehicle to global
+    pose_record = nusc.get('ego_pose', lidar_data['ego_pose_token'])
+    vehicle2global_rotation = pose_record['rotation']
+    vehicle2global_translation = pose_record['translation']
+    vehicle2global = transform_matrix(vehicle2global_translation, Quaternion(vehicle2global_rotation))
+    
+    # lidar to global
+    lidar2global = vehicle2global @ lidar2vehicle
+
+    return lidar2global
 
 def transform_points(nusc, cam, pointsensor, pc):
     '''
